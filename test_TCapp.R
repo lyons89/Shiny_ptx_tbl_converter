@@ -5,6 +5,13 @@ library(openxlsx)
 library(readxl)
 library(DT)
 
+extract <- function(text) {
+  text <- gsub(" ", "", text)
+  split <- strsplit(text, ",")[[1]]
+  as.numeric(split)
+}
+
+
 # user interface ----
 ui <- navbarPage("Table Converter",
                  tabPanel("File Upload",
@@ -26,17 +33,20 @@ ui <- navbarPage("Table Converter",
                                           placeholder = ".xlsx",
                                           accept = c(".xlsx")),
                                 br(),
-                                fileInput("byosExpectedFile", "Optional: Select a xlsx file containing expected masses:"),
+                                radioButtons("expectedInput", "Choose method for expected masses:",
+                                             choices = (c("Manual", "xlsx"))),
                                 br(),
-                                selectInput("tab1", "Select tab", choices = NULL),
-                                selectInput("tab2", "Select tab", choices = NULL),
+                                fileInput("byosExpectedFile", "Optional: Select a xlsx file containing expected masses"),
                                 br(),
-                                textInput("expectedMasses", label = "Optional: Write in the expected masses, only separated by a comma:",
+                                textInput("expectedMasses", label = "Optional: Add expected masses, only separated by a comma",
                                           value = ""),
+                                selectInput("tab1", "Original Tab", choices = NULL),
+                                selectInput("tab2", "Transformed Tab", choices = NULL),
                                 br(),
                                 textInput("outputFileName", label = "Export file name:", value = "")
                               ),
-                              actionButton("convert", label = "Convert"),
+                              actionButton("convert", label = "Convert", class = "btn btn-success"),
+                              downloadButton("downloadByos", label = "Download", icon = icon("download"), class = "btn btn-primary")
                             ),
                             mainPanel(
                               DT::dataTableOutput("df1"),
@@ -44,6 +54,7 @@ ui <- navbarPage("Table Converter",
                             )))
                               
 server = function(input, output, session){
+  
   
   byosDf = reactive({
     
@@ -66,14 +77,14 @@ server = function(input, output, session){
   byosExpectedFile = reactive({
     
     req(input$byosExpectedFile)
-    file = read.xlsx(input$byosExpectedFile$datapath, sheet=1)
+    file = read.xlsx(input$byosExpectedFile$datapath, sheet=1)[,2]
     return(file)
     
   })
   
   byosExpectedInput = reactive({
     
-    expected = input$expectedMasses
+    expected = extract(input$expectedMasses)
     
   })
   
@@ -98,8 +109,12 @@ server = function(input, output, session){
   run = eventReactive(input$convert,
                       if(input$SearchEngine == "Byos"){
                         
-                        expected = byosExpectedFile()
-
+                        if(input$expectedInput == "Manual"){
+                          expected == byosExpectedInput()
+                        }else{
+                          expected = byosExpectedFile()
+                        }
+                        
                         sheet_names = ByosSheetNames()
                         
                         byosdf = byosDf()
@@ -110,8 +125,8 @@ server = function(input, output, session){
                                  Intensity = as.numeric(Intensity)) %>%
                           arrange(desc(Intensity)) %>%
                           mutate(`Expected mass` = as.numeric(`Expected mass`)) %>%
-                          mutate("Delta mass from expected" = Mass - `Expected mass`) %>%
-                          mutate("Delta mass from most intense" = dplyr::first(Mass) - Mass)  %>%
+                          mutate("Delta mass from expected" = round(Mass - `Expected mass`, 4)) %>%
+                          mutate("Delta mass from most intense" = round(dplyr::first(Mass) - Mass, 4))  %>%
                           mutate("Local Rel. Int. (%)" = round(Intensity / dplyr::first(Intensity) * 100, 2), "%") %>%
                           dplyr::rename(., "Measured mass" = Mass) %>%
                           mutate(Intensity = formatC(Intensity, format = "e", digits = 2)) %>%
@@ -120,7 +135,7 @@ server = function(input, output, session){
                                         `Delta mass from most intense`, Intensity, `Local Rel. Int. (%)`)
                         
                         
-                        samps = map2(nrow(expected), byosdf[2:length(byosdf)], function(x,y){
+                        samps = map2(expected, byosdf[2:length(byosdf)], function(x,y){
 
                           red2 = y %>%
                             dplyr::select(., Name, Mass, `Expected mass`, Intensity) %>%
@@ -155,6 +170,20 @@ server = function(input, output, session){
   output$df2 = DT::renderDataTable(new_DT())
   
 
+   output$downloadByos = downloadHandler(
+     filename = function() {
+       paste0(format(Sys.time(),'%Y%m%d_%H%M'), "_", input$outputFileName, "_postprocessed.xlsx" )
+     },
+     content = function(file){
+       hs = createStyle(textDecoration = "Bold", wrapText = TRUE)
+       write.xlsx(run(), file,
+                  sheetName = ByosSheetNames(), overwrite = TRUE, headerStyle = hs)
+       
+     }
+   )
+
+  
+  
 }
 
 shinyApp(ui, server)
