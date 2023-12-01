@@ -28,7 +28,8 @@ ui <- navbarPage("Table Converter",
                                 br(),
                                 fileInput("byosExpectedFile", "Optional: Select a xlsx file containing expected masses:"),
                                 br(),
-                                selectInput("tab", "Select tab", choices = NULL),
+                                selectInput("tab1", "Select tab", choices = NULL),
+                                selectInput("tab2", "Select tab", choices = NULL),
                                 br(),
                                 textInput("expectedMasses", label = "Optional: Write in the expected masses, only separated by a comma:",
                                           value = ""),
@@ -78,26 +79,28 @@ server = function(input, output, session){
   
   observeEvent(ByosSheetNames(), {
 
-    updateSelectInput(session, "tab", choices = ByosSheetNames())
+    updateSelectInput(session, "tab1", choices = ByosSheetNames())
+    updateSelectInput(session, "tab2", choices = ByosSheetNames())
+    
 
   })
   
 
-  newDT = reactive({
+  orig_DT = reactive({
     
-    new = byosDf()[[input$tab]]
+    new = byosDf()[[input$tab1]]
     
   })
   
   
-  output$df1 = DT::renderDataTable(newDT())
+  output$df1 = DT::renderDataTable(orig_DT())
   
   run = eventReactive(input$convert,
                       if(input$SearchEngine == "Byos"){
                         
-                        # expected = byosExpectedFile()
-                        #
-                        # sheet_names = ByosSheetNames()
+                        expected = byosExpectedFile()
+
+                        sheet_names = ByosSheetNames()
                         
                         byosdf = byosDf()
                         
@@ -115,9 +118,41 @@ server = function(input, output, session){
                           dplyr::select(., Name, `Measured mass`, `Expected mass`,
                                         `Delta mass from expected`,
                                         `Delta mass from most intense`, Intensity, `Local Rel. Int. (%)`)
+                        
+                        
+                        samps = map2(nrow(expected), byosdf[2:length(byosdf)], function(x,y){
+
+                          red2 = y %>%
+                            dplyr::select(., Name, Mass, `Expected mass`, Intensity) %>%
+                            mutate(Mass = as.numeric(Mass),
+                                   Intensity = as.numeric(Intensity)) %>%
+                            arrange(desc(Intensity)) %>%
+                            mutate(`Expected mass` = as.numeric(`Expected mass`)) %>%
+                            mutate("Delta mass from expected (ilab)" = Mass - x) %>%
+                            mutate("Delta mass from expected (byos)" = Mass - `Expected mass`) %>%
+                            mutate("Expected mass (ilab)" = rep(x, nrow(.))) %>%
+                            mutate("Delta mass from most intense" = dplyr::first(Mass) - Mass)  %>%
+                            mutate("Local Rel. Int. (%)" = round(Intensity / dplyr::first(Intensity) * 100, 2), "%") %>%
+                            dplyr::rename(., "Measured mass" = Mass) %>%
+                            mutate(Intensity = formatC(Intensity, format = "e", digits = 2)) %>%
+                            dplyr::select(., Name, `Measured mass`, `Expected mass (ilab)`, `Delta mass from expected (ilab)`,
+                                          `Expected mass (byos)` = `Expected mass`, `Delta mass from expected (byos)`,
+                                          `Delta mass from most intense`, Intensity, `Local Rel. Int. (%)`) 
+                        })
+
+                        lst = c(list(nist), samps)
+                        names(lst) = ByosSheetNames()
+                        
+                        return(lst)
+                        
                       })
   
-  output$df2 = DT::renderDataTable(run())
+  
+  new_DT = reactive({
+    new = run()[[input$tab2]]
+  })
+  
+  output$df2 = DT::renderDataTable(new_DT())
   
 
 }
