@@ -34,9 +34,13 @@ ui <- navbarPage("Table Converter",
                                           value = ""),
                                 br(),
                                 textInput("outputFileName", label = "Export file name:", value = "")
-                              )),
-                            mainPanel(DT::dataTableOutput("dataframe"))
-                          )))
+                              ),
+                              actionButton("convert", label = "Convert"),
+                            ),
+                            mainPanel(
+                              DT::dataTableOutput("df1"),
+                              DT::dataTableOutput("df2"))
+                            )))
                               
 server = function(input, output, session){
   
@@ -86,7 +90,34 @@ server = function(input, output, session){
   })
   
   
-  output$dataframe = DT::renderDataTable(newDT())
+  output$df1 = DT::renderDataTable(newDT())
+  
+  run = eventReactive(input$convert,
+                      if(input$SearchEngine == "Byos"){
+                        
+                        # expected = byosExpectedFile()
+                        #
+                        # sheet_names = ByosSheetNames()
+                        
+                        byosdf = byosDf()
+                        
+                        nist = byosdf[[1]] %>%
+                          dplyr::select(., Name, Mass, `Expected mass`, Intensity) %>%
+                          mutate(Mass = as.numeric(Mass),
+                                 Intensity = as.numeric(Intensity)) %>%
+                          arrange(desc(Intensity)) %>%
+                          mutate(`Expected mass` = as.numeric(`Expected mass`)) %>%
+                          mutate("Delta mass from expected" = Mass - `Expected mass`) %>%
+                          mutate("Delta mass from most intense" = dplyr::first(Mass) - Mass)  %>%
+                          mutate("Local Rel. Int. (%)" = round(Intensity / dplyr::first(Intensity) * 100, 2), "%") %>%
+                          dplyr::rename(., "Measured mass" = Mass) %>%
+                          mutate(Intensity = formatC(Intensity, format = "e", digits = 2)) %>%
+                          dplyr::select(., Name, `Measured mass`, `Expected mass`,
+                                        `Delta mass from expected`,
+                                        `Delta mass from most intense`, Intensity, `Local Rel. Int. (%)`)
+                      })
+  
+  output$df2 = DT::renderDataTable(run())
   
 
 }
