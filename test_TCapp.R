@@ -39,10 +39,7 @@ ui <- navbarPage("Table Converter",
                                 br(),
                                 textInput("expectedMasses", label = "Optional: Add expected masses, only separated by a comma",
                                           value = ""),
-                                # selectInput("tab1", "Original Tab", choices = NULL),
-                                selectInput("tab2", "Transformed Tab", choices = NULL),
-                                br(),
-                                #downloadButton("downloadByos", label = "Download", icon = icon("download"), class = "btn btn-primary")
+                                #selectInput("tab2", "Transformed Tab", choices = NULL),
                               ),
                               conditionalPanel(
                                 h3("Spectronaut"),
@@ -54,16 +51,14 @@ ui <- navbarPage("Table Converter",
                                 fileInput("SpectroQuantFile", "Choose an xls quant file:",
                                           multiple = FALSE,
                                           accept = c(".xls")),
-                                br(),
-                                selectInput("tab2", "Transformed Tab", choices = NULL),
-                                #downloadButton("downloadSpec", label = "Download", icon = icon("download"), class = "btn btn-primary")
+                                #selectInput("tab2", "Transformed Tab", choices = NULL),
                               ),
+                              selectInput("tab2", "Transformed Tab", choices = NULL),
                               textInput("outputFileName", label = "Export file name:", value = ""),
                               actionButton("convert", label = "Convert", class = "btn btn-success"),
                               downloadButton("download", label = "Download", icon = icon("download"), class = "btn btn-primary")
                             ),
                             mainPanel(
-                              #DT::dataTableOutput("df1"),
                               DT::dataTableOutput("df2"))
                             )))
                               
@@ -105,16 +100,16 @@ server = function(input, output, session){
   spectroStats = reactive({
     
     req(input$SpectroStatsFile)
-    file1 = fread(input$SpectroStatsFile$datapath)
-    return(file1)
+    file = fread(input$SpectroStatsFile$datapath)
+    return(file)
     
   })
   
   spectroQuant = reactive({
     
     req(input$SpectroQuantFile)
-    file2 = fread(input$SpectroQuantFile$datapath)
-    return(file2)
+    file = fread(input$SpectroQuantFile$datapath)
+    return(file)
     
   })
   
@@ -130,28 +125,22 @@ server = function(input, output, session){
     
   })
   
-  
-  observeEvent(ByosSheetNames(), {
-
-    #updateSelectInput(session, "tab1", choices = ByosSheetNames())
-    updateSelectInput(session, "tab2", choices = ByosSheetNames())
+  finalSheetnames = reactive({
     
-
+    switch(input$SearchEngine,
+           "MQ" = MQ, 
+           "PD" =  PD,
+           "Byos" = ByosSheetNames(),
+           "Spectronaut" = spectroSheetNames())
+    
   })
   
   
-  # datasetInput = reactive({
-  #   
-  #   switch(input$SearchEngine,
-  #          "MQ" = MQ, 
-  #          "PD" =  PD,
-  #          "Byos" = byosDf()[[input$tab1]],
-  #          "Spectronaut" = spectroQuant())
-  #   
-  # })
-  # 
-  # output$df1 = DT::renderDataTable(datasetInput())
-  
+  observeEvent(finalSheetnames(), {
+
+    updateSelectInput(session, "tab2", choices = finalSheetnames())
+
+  })
   
   
   conv_Byos = eventReactive(list(input$convert, input$SearchEngine == "Byos"),{
@@ -247,27 +236,10 @@ server = function(input, output, session){
     })
     
     lst = c(list(quant2), ind_comps)
-   
+    names(lst) = spectroSheetNames()
+    
     return(lst) 
   })
-  
-  
-  datasetOutput = reactive({
-    
-    switch(input$SearchEngine,
-           "MQ" = MQ, 
-           "PD" =  PD,
-           "Byos" = conv_Byos()[[input$tab2]],
-           "Spectronaut" = conv_Spec()[[input$tab2]])
-    
-  })
-  
-  
-  # new_DT = reactive({
-  #   new = conv_Byos()[[input$tab2]]
-  # })
-  
-  output$df2 = DT::renderDataTable(datasetOutput())
   
   
   finalOut = reactive({
@@ -280,15 +252,16 @@ server = function(input, output, session){
     
   })
   
-  finalSheetnames = reactive({
+
+  DT = reactive({
     
-    switch(input$SearchEngine,
-           "MQ" = MQ, 
-           "PD" =  PD,
-           "Byos" = ByosSheetNames(),
-           "Spectronaut" = spectroSheetNames())
+    newDT = finalOut()[[input$tab2]]
     
   })
+  
+  output$df2 = DT::renderDataTable(DT())
+  
+  
   
   
   output$download = downloadHandler(
