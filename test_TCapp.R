@@ -44,11 +44,11 @@ ui <- navbarPage("Table Converter",
                               conditionalPanel(
                                 h3("Spectronaut"),
                                 condition = "input.SearchEngine == 'Spectronaut'",
-                                fileInput("SpectroStatsFile", "Choose an xls stats file:",
+                                fileInput("SpectroStatsFile", "Choose a Candiate xls stats file:",
                                           multiple = FALSE,
                                           accept = c(".xls")), 
                                 br(),
-                                fileInput("SpectroQuantFile", "Choose an xls quant file:",
+                                fileInput("SpectroQuantFile", "Choose a Report xls quant file:",
                                           multiple = FALSE,
                                           accept = c(".xls")),
                                 #selectInput("tab2", "Transformed Tab", choices = NULL),
@@ -212,7 +212,7 @@ server = function(input, output, session){
     
     
     quant2 = quant_df %>%
-      dplyr::select(., PG.ProteinGroups, PG.ProteinNames, PG.Genes, PG.ProteinDescriptions, PG.FASTAHeader, ends_with("PG.Quantity")) %>%
+      dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FASTAHeader")), ends_with("PG.Quantity")) %>%
       mutate("SummedQuantity" = rowSums(across(ends_with("PG.Quantity")))) %>%
       left_join(., stats2, by = c("PG.ProteinGroups" = "accession")) %>%
       dplyr::select(., ProteinGroups = PG.ProteinGroups, ProteinNames = PG.ProteinNames, Genes = PG.Genes, 
