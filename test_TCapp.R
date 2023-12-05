@@ -24,7 +24,10 @@ APMS_MQ = function(df){
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Potential contaminant", "Peptides",  
                               "Razor + unique peptides", "Unique peptides")), 
                   contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), starts_with("MS/MS count")) %>%
-    mutate("Summed LFQ Intensity" = rowSums(2^across(.cols = starts_with("LFQ intensity")), na.rm=TRUE)) %>%
+    mutate(across(.cols = starts_with("LFQ intensity"), ~round(.x, 2)),
+           across(.cols = contains("Difference"), ~round(.x, 2)),
+           across(.cols = contains("p-value"), ~round(.x, 8))) %>%
+    mutate("Summed LFQ Intensity" = round(rowSums(2^across(.cols = starts_with("LFQ intensity")), na.rm=TRUE)), 0) %>%
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Razor + unique peptides", "Potential contaminant")),
                   contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), "Peptides",
                   "Unique peptides", starts_with("Sequence coverage"), "Summed LFQ Intensity", starts_with("MS/MS count"),
@@ -280,19 +283,23 @@ server = function(input, output, session){
     stats2 = stats_df %>%
       dplyr::select(., comparison = starts_with("Comparison"), ProteinGroups, UniquePeptides = `# Unique Total Peptides`,
                     log2FC = `AVG Log2 Ratio`, pvalue = Pvalue, qvalue = Qvalue) %>%
-      pivot_wider(., names_from = comparison, values_from = c(log2FC, pvalue, qvalue))
-    
+      dplyr::mutate(pvalue = round(pvalue, 8),
+                    qvalue = round(qvalue, 8),
+                    log2FC = round(log2FC, 4)) %>%
+      tidyr::pivot_wider(., names_from = comparison, values_from = c(log2FC, pvalue, qvalue))
+
     
     quant2 = quant_df %>%
       dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FASTAHeader")), ends_with("PG.Quantity")) %>%
-      mutate("SummedQuantity" = rowSums(across(ends_with("PG.Quantity")))) %>%
-      rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
-      left_join(., stats2, by = "ProteinGroups") %>%
+      dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")))),0) %>%
+      dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 2))) %>%
+      dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
+      dplyr::left_join(., stats2, by = "ProteinGroups") %>%
       dplyr::select(., any_of(c("ProteinGroups", "ProteinNames", "Genes", 
                     "ProteinDescriptions", "FASTAHeader", 
                     "UniquePeptides", "SummedQuantity")), 
                     ends_with("PG.Quantity"), starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue")) %>%
-      rename_all(~str_replace_all(., "\\s+", ""))
+      dplyr::rename_all(~str_replace_all(., "\\s+", ""))
     
     
     ind_comps = lapply(gsub("\\s+", "", unique(stats_df$`Comparison (group1/group2)`)), function(x){
@@ -305,7 +312,7 @@ server = function(input, output, session){
                       "ProteinDescriptions", "FASTAHeader", 
                       "unique_peptides")), log2FC = starts_with("log2FC"), 
                       pvalue = starts_with("pvalue"), qvalue = starts_with("qvalue"))
-      
+
     })
     
     lst = c(list(quant2), ind_comps)
