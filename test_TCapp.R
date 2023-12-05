@@ -1,5 +1,10 @@
 # Load Packages ---
 library(shiny)
+# library(dplyr)
+# library(magrittr)
+# library(tidyr)
+# library(purrr)
+# library(stringr)
 library(tidyverse)
 library(openxlsx)
 library(readxl)
@@ -12,6 +17,35 @@ extract <- function(text) {
   as.numeric(split)
 }
 
+APMS_MQ = function(df){
+  
+  
+  untilt = df %>%
+    dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Potential contaminant", "Peptides",  
+                              "Razor + unique peptides", "Unique peptides")), 
+                  contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), starts_with("MS/MS count")) %>%
+    mutate("Summed LFQ Intensity" = rowSums(2^across(.cols = starts_with("LFQ intensity")), na.rm=TRUE)) %>%
+    dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Razor + unique peptides", "Potential contaminant")),
+                  contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), "Peptides",
+                  "Unique peptides", starts_with("Sequence coverage"), "Summed LFQ Intensity", starts_with("MS/MS count"),
+                  -contains("significant", ignore.case=FALSE)) %>%
+    arrange(.,desc(`Summed LFQ Intensity`))
+  
+  
+}
+
+import_pers = function(file_loc){
+  
+  firstRead = read.delim(file_loc, sep = "\t", na.strings = c("", "NaN", "NA"), check.names = FALSE)
+  
+  finalRead = read.delim(file_loc, sep = "\t", skip = sum(grepl("#!", firstRead[,1])), 
+                         col.names = names(firstRead), na.strings = c("", "NaN", "NA"), check.names = FALSE)
+  # skips the first several rows which contain a #!
+  # also renames columns from the first read, and converts blank, NaN and NA values to N/A
+  
+}
+
+
 options(shiny.maxRequestSize=30*1024^2) # increase server.R limit to 30MB file size
 
 # user interface ----
@@ -20,7 +54,6 @@ ui <- navbarPage("Table Converter",
                           sidebarLayout(
                             sidebarPanel(
                               h3("Select data type"),
-                              br(),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
                                            choices = c("MQ-Perseus", "PD-Perseus", "Byos", "Spectronaut")),
                               conditionalPanel(
@@ -30,13 +63,10 @@ ui <- navbarPage("Table Converter",
                                           multiple = FALSE,
                                           placeholder = ".xlsx",
                                           accept = c(".xlsx")),
-                                br(),
                                 h4("Choose one option to supply expected mass values:"),
                                 radioButtons("expectedInput", "Choose method for expected masses:",
                                              choices = (c("Manual", "xlsx"))),
-                                br(),
                                 fileInput("byosExpectedFile", "upload a xlsx file containing expected masses"),
-                                br(),
                                 textInput("expectedMasses", label = "Optional: Add expected masses, only separated by a comma",
                                           value = ""),
                                 #selectInput("tab2", "Transformed Tab", choices = NULL),
@@ -47,11 +77,23 @@ ui <- navbarPage("Table Converter",
                                 fileInput("SpectroStatsFile", "Choose a Candiate xls stats file:",
                                           multiple = FALSE,
                                           accept = c(".xls")), 
-                                br(),
                                 fileInput("SpectroQuantFile", "Choose a Report xls quant file:",
                                           multiple = FALSE,
                                           accept = c(".xls")),
                                 #selectInput("tab2", "Transformed Tab", choices = NULL),
+                              ),
+                              conditionalPanel(
+                                h3("Perseus"),
+                                condition = "input.SearchEngine == 'MQ-Perseus' || input.SearchEngine == 'PD-Perseus'", # can this have 2 options
+                                fileInput("perseusUnimputedFile", "Select the UNIMPUTED Perseus txt file:",
+                                          multiple = FALSE,
+                                          accept = c(".txt")),
+                                fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
+                                          multiple = FALSE,
+                                          accept = c(".txt")),
+                                h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
+                                radioButtons("PerseusFilterOption", "Choose method to filter data by:",
+                                             choices = (c("pval", "pval & FC"))),
                               ),
                               selectInput("tab2", "Transformed Tab", choices = NULL),
                               textInput("outputFileName", label = "Export file name:", value = ""),
@@ -125,11 +167,41 @@ server = function(input, output, session){
     
   })
   
+  
+  perseusUnImputed = reactive({
+    
+    req(input$perseusUnimputedFile)
+    
+    file = import_pers(file_loc = input$perseusUnimputedFile$datapath)
+    return(file)
+    
+  })
+  
+  perseusImputed = reactive({
+    
+    req(input$perseusImputedFile)
+    
+    file = import_pers(file_loc = input$perseusImputedFile$datapath)
+    return(file)
+    
+  })
+  
+  perseusSheetNames = reactive({
+    df = perseusImputed()
+    
+    tabNames = str_replace_all(str_remove_all(names(dplyr::select(df, contains("p-value"))), "Student's T-test p-value "), 
+                               pattern = "_", replacement = " v ")
+    
+    tabnames = c("Proteins", "Imputed", tabNames)
+    
+  })
+  
+  
   finalSheetnames = reactive({
     
     switch(input$SearchEngine,
-           "MQ" = MQ, 
-           "PD" =  PD,
+           "MQ-Perseus" = perseusSheetNames(), 
+           "PD-Perseus" =  perseusSheetNames(),
            "Byos" = ByosSheetNames(),
            "Spectronaut" = spectroSheetNames())
     
@@ -147,7 +219,7 @@ server = function(input, output, session){
                       
 
         if(input$expectedInput == "Manual"){
-          expected == byosExpectedInput()
+          expected = byosExpectedInput()
         }
         else{
           expected = byosExpectedFile()
@@ -206,7 +278,7 @@ server = function(input, output, session){
     quant_df = spectroQuant()
     
     stats2 = stats_df %>%
-      dplyr::select(., comparison = starts_with("Comparison"), accession = ProteinGroups, unique_peptides = `# Unique Total Peptides`,
+      dplyr::select(., comparison = starts_with("Comparison"), ProteinGroups, UniquePeptides = `# Unique Total Peptides`,
                     log2FC = `AVG Log2 Ratio`, pvalue = Pvalue, qvalue = Qvalue) %>%
       pivot_wider(., names_from = comparison, values_from = c(log2FC, pvalue, qvalue))
     
@@ -214,23 +286,24 @@ server = function(input, output, session){
     quant2 = quant_df %>%
       dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FASTAHeader")), ends_with("PG.Quantity")) %>%
       mutate("SummedQuantity" = rowSums(across(ends_with("PG.Quantity")))) %>%
-      left_join(., stats2, by = c("PG.ProteinGroups" = "accession")) %>%
-      dplyr::select(., ProteinGroups = PG.ProteinGroups, ProteinNames = PG.ProteinNames, Genes = PG.Genes, 
-                    ProteinDescriptions = PG.ProteinDescriptions, FASTAHeader = PG.FASTAHeader, 
-                    unique_peptides, SummedQuantity, 
+      rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
+      left_join(., stats2, by = "ProteinGroups") %>%
+      dplyr::select(., any_of(c("ProteinGroups", "ProteinNames", "Genes", 
+                    "ProteinDescriptions", "FASTAHeader", 
+                    "UniquePeptides", "SummedQuantity")), 
                     ends_with("PG.Quantity"), starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue")) %>%
       rename_all(~str_replace_all(., "\\s+", ""))
     
     
-    ind_comps = map(gsub("\\s+", "", unique(stats_df$`Comparison (group1/group2)`)), function(x){
+    ind_comps = lapply(gsub("\\s+", "", unique(stats_df$`Comparison (group1/group2)`)), function(x){
       
       int = quant2 %>%
-        dplyr::select(., ProteinGroups, ProteinNames, Genes, 
-                      ProteinDescriptions, FASTAHeader, 
-                      unique_peptides, contains(x)) %>%
-        dplyr::select(., ProteinGroups, ProteinNames, Genes, 
-                      ProteinDescriptions, FASTAHeader, 
-                      unique_peptides, log2FC = starts_with("log2FC"), 
+        dplyr::select(., any_of(c("ProteinGroups", "ProteinNames", "Genes", 
+                      "ProteinDescriptions", "FASTAHeader", 
+                      "unique_peptides")), contains(x)) %>%
+        dplyr::select(., any_of(c("ProteinGroups", "ProteinNames", "Genes", 
+                      "ProteinDescriptions", "FASTAHeader", 
+                      "unique_peptides")), log2FC = starts_with("log2FC"), 
                       pvalue = starts_with("pvalue"), qvalue = starts_with("qvalue"))
       
     })
@@ -241,12 +314,57 @@ server = function(input, output, session){
     return(lst) 
   })
   
+  conv_Perseus_MQ = eventReactive(list(input$convert, input$SearchEngine == "MQ-Perseus|PD-Perseus"),{
+    
+    
+    if(input$SearchEngine == "MQ-Perseus"){
+      
+      cleaned_unimputed = APMS_MQ(df = perseusUnImputed())
+      cleaned_imputed = APMS_MQ(df = perseusImputed())
+      
+      # just separate the comparisons that are on the cleaned_imputed df
+      log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+      pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
+      
+      if(input$PerseusFilterOption == "pval"){
+        
+        filt = map2(log_names, pvalue_names, function(x,y){
+          int = cleaned_imputed %>%
+            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+            dplyr::arrange(., desc((!!as.symbol(x))))
+        })
+        
+        lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
+        names(lst) = perseusSheetNames()
+        
+        return(lst)
+      }
+      if(input$PerseusFilterOption == "pval & FC"){
+        
+        filt = map2(log_names, pvalue_names, function(x,y){
+          int = cleaned_imputed %>%
+            dplyr::filter(., !!as.symbol(x) > 1 | !!as.symbol(y) < -1) %>%
+            dplyr::filter(., !!as.symbol(y) < 0.05) %>% # this method to evaluate "column name" as a variable. first turn into symbol, then !! inject it into expression
+            dplyr::arrange(., desc(!!as.symbol(x)))
+        })
+        
+        lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
+        names(lst) = perseusSheetNames()
+        
+        return(lst)
+      }
+      
+      
+      
+    }
+    
+  })
   
   finalOut = reactive({
     
     switch(input$SearchEngine,
-           "MQ" = MQ, 
-           "PD" =  PD,
+           "MQ-Perseus" = conv_Perseus_MQ(), 
+           "PD-Perseus" =  PD,
            "Byos" = conv_Byos(),
            "Spectronaut" = conv_Spec())
     
@@ -260,8 +378,6 @@ server = function(input, output, session){
   })
   
   output$df2 = DT::renderDataTable(DT())
-  
-  
   
   
   output$download = downloadHandler(
