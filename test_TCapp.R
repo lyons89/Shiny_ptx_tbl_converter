@@ -299,14 +299,14 @@ server = function(input, output, session){
       dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FASTAHeader")), ends_with("PG.Quantity")) %>%
       dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
       dplyr::select(., any_of(column_names_keep), ends_with("PG.Quantity")) %>%
-      dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")))),0) %>%
+      dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE)),0) %>%
       dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 2))) %>%
       dplyr::left_join(., stats2, by = "ProteinGroups") %>%
       dplyr::select(., any_of(c(column_names_keep, 
                     "UniquePeptides", "SummedQuantity")), 
                     starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
       dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
-      dplyr::arrange(., desc("SummedQuantity")) 
+      dplyr::arrange(., desc("SummedQuantity"))
 
     if(input$transformSpectro == "Log2"){
       
@@ -334,7 +334,7 @@ server = function(input, output, session){
         dplyr::select(., any_of(c(column_names_keep, 
                       "UniquePeptides", "SummedQuantity")), log2FC = starts_with("log2FC"), 
                       pvalue = starts_with("pvalue"), qvalue = starts_with("qvalue"), ends_with("PG.Quantity")) %>%
-        dplyr::filter(log2FC < 0.6 & qvalue < 0.05) %>%
+        dplyr::filter((log2FC > 0.6 | log2FC < -0.6 )& qvalue < 0.05) %>%
         dplyr::arrange(., desc("SummedQuantity"))
       
     })
