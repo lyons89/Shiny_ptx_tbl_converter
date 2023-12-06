@@ -77,12 +77,14 @@ ui <- navbarPage("Table Converter",
                               conditionalPanel(
                                 h3("Spectronaut"),
                                 condition = "input.SearchEngine == 'Spectronaut'",
-                                fileInput("SpectroStatsFile", "Choose a Candiate xls stats file:",
+                                fileInput("SpectroStatsFile", "Choose a Candidate xls stats file:",
                                           multiple = FALSE,
                                           accept = c(".xls")), 
                                 fileInput("SpectroQuantFile", "Choose a Report xls quant file:",
                                           multiple = FALSE,
                                           accept = c(".xls")),
+                                radioButtons("transformSpectro", "How do you want the sample quantity values",
+                                             choices = c("non-transformed", "Log2", "Both"))
                                 #selectInput("tab2", "Transformed Tab", choices = NULL),
                               ),
                               conditionalPanel(
@@ -141,6 +143,7 @@ server = function(input, output, session){
     expected = extract(input$expectedMasses)
     
   })
+  
   
   spectroStats = reactive({
     
@@ -277,10 +280,13 @@ server = function(input, output, session){
   
   conv_Spec = eventReactive(list(input$convert, input$SearchEngine == "Spectronaut"),{
     
+    column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", 
+                          "ProteinDescriptions", "FASTAHeader")
+    
     stats_df = spectroStats()
     quant_df = spectroQuant()
     
-    stats2 = stats_df %>%
+    stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
       dplyr::select(., comparison = starts_with("Comparison"), ProteinGroups, UniquePeptides = `# Unique Total Peptides`,
                     log2FC = `AVG Log2 Ratio`, pvalue = Pvalue, qvalue = Qvalue) %>%
       dplyr::mutate(pvalue = round(pvalue, 8),
@@ -291,28 +297,46 @@ server = function(input, output, session){
     
     quant2 = quant_df %>%
       dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FASTAHeader")), ends_with("PG.Quantity")) %>%
+      dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
+      dplyr::select(., any_of(column_names_keep), ends_with("PG.Quantity")) %>%
       dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")))),0) %>%
       dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 2))) %>%
-      dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
       dplyr::left_join(., stats2, by = "ProteinGroups") %>%
-      dplyr::select(., any_of(c("ProteinGroups", "ProteinNames", "Genes", 
-                    "ProteinDescriptions", "FASTAHeader", 
+      dplyr::select(., any_of(c(column_names_keep, 
                     "UniquePeptides", "SummedQuantity")), 
-                    ends_with("PG.Quantity"), starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue")) %>%
-      dplyr::rename_all(~str_replace_all(., "\\s+", ""))
+                    starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
+      dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
+      dplyr::arrange(., desc("SummedQuantity")) 
+
+    if(input$transformSpectro == "Log2"){
+      
+      quant2 = quant2 %>%
+        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~log2(.x))) %>%
+        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 2)))
+        
+      
+    }
+    if(input$transformSpectro == "Both"){
+      
+      quant2 = quant2 %>%
+        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~log2(.x), .names = "log2_{.col}")) %>%
+        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 2)))
+        
+      
+    }  
     
     
     ind_comps = lapply(gsub("\\s+", "", unique(stats_df$`Comparison (group1/group2)`)), function(x){
       
       int = quant2 %>%
-        dplyr::select(., any_of(c("ProteinGroups", "ProteinNames", "Genes", 
-                      "ProteinDescriptions", "FASTAHeader", 
-                      "unique_peptides")), contains(x)) %>%
-        dplyr::select(., any_of(c("ProteinGroups", "ProteinNames", "Genes", 
-                      "ProteinDescriptions", "FASTAHeader", 
-                      "unique_peptides")), log2FC = starts_with("log2FC"), 
-                      pvalue = starts_with("pvalue"), qvalue = starts_with("qvalue"))
-
+        dplyr::select(., any_of(c(column_names_keep, 
+                      "UniquePeptides", "SummedQuantity")), contains(x), ends_with("PG.Quantity")) %>%
+        dplyr::select(., any_of(c(column_names_keep, 
+                      "UniquePeptides", "SummedQuantity")), log2FC = starts_with("log2FC"), 
+                      pvalue = starts_with("pvalue"), qvalue = starts_with("qvalue"), ends_with("PG.Quantity")) %>%
+        dplyr::filter(log2FC < 0.6 & qvalue < 0.05) %>%
+        dplyr::arrange(., desc("SummedQuantity"))
+      
     })
     
     lst = c(list(quant2), ind_comps)
