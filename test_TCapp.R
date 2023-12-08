@@ -84,7 +84,9 @@ ui <- navbarPage("Table Converter",
                                           multiple = FALSE,
                                           accept = c(".xls")),
                                 radioButtons("transformSpectro", "How do you want the sample quantity values",
-                                             choices = c("non-transformed", "Log2", "Both"))
+                                             choices = c("non-transformed", "Log2", "Both")),
+                                radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
+                                numericInput("statsValue", "stats value to filter by", value = "0.05")
                                 #selectInput("tab2", "Transformed Tab", choices = NULL),
                               ),
                               conditionalPanel(
@@ -98,7 +100,7 @@ ui <- navbarPage("Table Converter",
                                           accept = c(".txt")),
                                 h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
                                 radioButtons("PerseusFilterOption", "Choose method to filter data by:",
-                                             choices = (c("pval", "pval & FC"))),
+                                             choices = (c("pval", "pval & log2FC"))),
                               ),
                               selectInput("tab2", "Transformed Tab", choices = NULL),
                               textInput("outputFileName", label = "Export file name:", value = ""),
@@ -334,8 +336,8 @@ server = function(input, output, session){
         dplyr::select(., any_of(c(column_names_keep, 
                       "UniquePeptides", "SummedQuantity")), log2FC = starts_with("log2FC"), 
                       pvalue = starts_with("pvalue"), qvalue = starts_with("qvalue"), ends_with("PG.Quantity")) %>%
-        dplyr::filter((log2FC > 0.6 | log2FC < -0.6 )& qvalue < 0.05) %>%
-        dplyr::arrange(., desc("SummedQuantity"))
+        dplyr::filter((log2FC > 0.6 | log2FC < -0.6) & !!as.symbol(input$statsFilter) < input$statsValue) %>%
+        dplyr::arrange(., desc("log2FC"))
       
     })
     
