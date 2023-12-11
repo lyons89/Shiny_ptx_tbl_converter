@@ -21,8 +21,9 @@ ui <- navbarPage("Table Converter",
                             conditionalPanel(
                               h3("Byos"),
                               condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes?
-                              fileInput("byosFile", "Select the Byos preprocessed xlsx results file:",
+                              fileInput("byosFile", "Select the preprocessed results:",
                                         multiple = FALSE,
+                                        placeholder = ".xlsx",
                                         accept = c(".xlsx")),
                               br(),
                               fileInput("byosExpectedFile", "Optional: Select a xlsx file containing expected masses:"),
@@ -64,7 +65,7 @@ ui <- navbarPage("Table Converter",
                             actionButton("convert", label = "Convert"),
                             br()
                             ),
-                            mainPanel(DT::dataTableOutput("dataframe"))
+                            mainPanel(tableOutput("dataframe"))
                           )))
 
 server = function(input, output, session){
@@ -72,7 +73,7 @@ server = function(input, output, session){
   byosDf = reactive({
     
     req(input$byosFile)
-    sheet_names = excel_sheets(input$byosFile) # extract all excel sheet names
+    sheet_names = excel_sheets(input$byosFile$datapath) # extract all excel sheet names
     file1 = lapply(sheet_names, function(x){
       as.data.frame(read_excel(input$byosFile, sheet = x)) # read in each tab
     })
@@ -82,14 +83,14 @@ server = function(input, output, session){
   
   ByosSheetNames = reactive({
     req(input$byosFile)
-    sheet_names = excel_sheets(input$byosFile)
+    sheet_names = excel_sheets(input$byosFile$datapath)
     return(sheet_names)
   })
   
   byosExpectedFile = reactive({
     
     req(input$byosExpectedFile)
-    file = read.xlsx(input$byosExpectedFile, sheet=1)
+    file = read.xlsx(input$byosExpectedFile$datapath, sheet=1)
     return(file)
     
   })
@@ -104,7 +105,7 @@ server = function(input, output, session){
   spectroQuant = reactive({
 
     req(input$SpectroQuantFile)
-    file = fread(input$SpectroQuantFile)
+    file = fread(input$SpectroQuantFile$datapath)
     return(file)
 
   })
@@ -112,7 +113,7 @@ server = function(input, output, session){
   spectroStats = reactive({
 
     req(input$SpectroStatsFile)
-    file = fread(input$SpectroStatsFile)
+    file = fread(input$SpectroStatsFile$datapath)
     return(file)
 
   })
@@ -158,19 +159,22 @@ server = function(input, output, session){
 
   })
 
+  
+  
+  output$dataframe = renderTable(byosDf())
+  
+  
+  
+  run = eventReactive(input$convert,
 
-  run = eventReactive(input$convert,{
-    
-    DT::datatable({
-      
       if(input$SearchEngine == "Byos"){
-        
-        expected = byosExpectedFile()
-        
-        sheet_names = ByosSheetNames() 
-        
+
+        # expected = byosExpectedFile()
+        #
+        # sheet_names = ByosSheetNames()
+
         byosdf = byosDf()
-        
+
         nist = byosdf[[1]] %>%
           dplyr::select(., Name, Mass, `Expected mass`, Intensity) %>%
           mutate(Mass = as.numeric(Mass),
@@ -182,48 +186,47 @@ server = function(input, output, session){
           mutate("Local Rel. Int. (%)" = round(Intensity / dplyr::first(Intensity) * 100, 2), "%") %>%
           dplyr::rename(., "Measured mass" = Mass) %>%
           mutate(Intensity = formatC(Intensity, format = "e", digits = 2)) %>%
-          dplyr::select(., Name, `Measured mass`, `Expected mass`, 
+          dplyr::select(., Name, `Measured mass`, `Expected mass`,
                         `Delta mass from expected`,
-                        `Delta mass from most intense`, Intensity, `Local Rel. Int. (%)`)
-        
-        samps = map2(expected, byosdf[2:length(byosdf)], function(x,y){
-          
-          red2 = y %>%
-            dplyr::select(., Name, Mass, `Expected mass`, Intensity) %>%
-            mutate(Mass = as.numeric(Mass),
-                   Intensity = as.numeric(Intensity)) %>%
-            arrange(desc(Intensity)) %>%
-            mutate(`Expected mass` = as.numeric(`Expected mass`)) %>%
-            mutate("Delta mass from expected (ilab)" = Mass - x) %>%
-            mutate("Delta mass from expected (byos)" = Mass - `Expected mass`) %>%
-            mutate("Expected mass (ilab)" = rep(x, nrow(.))) %>%
-            mutate("Delta mass from most intense" = dplyr::first(Mass) - Mass)  %>%
-            mutate("Local Rel. Int. (%)" = round(Intensity / dplyr::first(Intensity) * 100, 2), "%") %>%
-            dplyr::rename(., "Measured mass" = Mass) %>%
-            mutate(Intensity = formatC(Intensity, format = "e", digits = 2)) %>%
-            dplyr::select(., Name, `Measured mass`, `Expected mass (ilab)`, `Delta mass from expected (ilab)`, 
-                          `Expected mass (byos)` = `Expected mass`, `Delta mass from expected (byos)`,
-                          `Delta mass from most intense`, Intensity, `Local Rel. Int. (%)`)
-        })
-        
-        lst = c(list(nist), samps)
-        
-        
-        
-        
+                        `Delta mass from most intense`, Intensity, `Local Rel. Int. (%)`) 
+
+        # samps = map2(nrow(expected), byosdf[2:length(byosdf)], function(x,y){
+        #
+        #   red2 = y %>%
+        #     dplyr::select(., Name, Mass, `Expected mass`, Intensity) %>%
+        #     mutate(Mass = as.numeric(Mass),
+        #            Intensity = as.numeric(Intensity)) %>%
+        #     arrange(desc(Intensity)) %>%
+        #     mutate(`Expected mass` = as.numeric(`Expected mass`)) %>%
+        #     mutate("Delta mass from expected (ilab)" = Mass - x) %>%
+        #     mutate("Delta mass from expected (byos)" = Mass - `Expected mass`) %>%
+        #     mutate("Expected mass (ilab)" = rep(x, nrow(.))) %>%
+        #     mutate("Delta mass from most intense" = dplyr::first(Mass) - Mass)  %>%
+        #     mutate("Local Rel. Int. (%)" = round(Intensity / dplyr::first(Intensity) * 100, 2), "%") %>%
+        #     dplyr::rename(., "Measured mass" = Mass) %>%
+        #     mutate(Intensity = formatC(Intensity, format = "e", digits = 2)) %>%
+        #     dplyr::select(., Name, `Measured mass`, `Expected mass (ilab)`, `Delta mass from expected (ilab)`,
+        #                   `Expected mass (byos)` = `Expected mass`, `Delta mass from expected (byos)`,
+        #                   `Delta mass from most intense`, Intensity, `Local Rel. Int. (%)`) %>%
+        #     DT::datatable(.)
+        # })
+        #
+        # lst = c(list(nist), samps)
+
+
         # byosConvert = function(byos_files, expected_masses_file, expected_masses_vector){
-        #   
+        #
         #   # if(is.null(expected_masses_file)){
         #   #   expected = expected_masses_vector
         #   # }else{
         #   #   expected = expected_masses_file[,2]
         #   #   expected = unlist(expected)
         #   # }
-        #   
+        #
         #   expected = expected_masses_file
-        #   
-        #   sheet_names = ByosSheetNames() 
-        #   
+        #
+        #   sheet_names = ByosSheetNames()
+        #
         #   nist = byos_files[[1]] %>%
         #     dplyr::select(., Name, Mass, `Expected mass`, Intensity) %>%
         #     mutate(Mass = as.numeric(Mass),
@@ -235,12 +238,12 @@ server = function(input, output, session){
         #     mutate("Local Rel. Int. (%)" = round(Intensity / dplyr::first(Intensity) * 100, 2), "%") %>%
         #     dplyr::rename(., "Measured mass" = Mass) %>%
         #     mutate(Intensity = formatC(Intensity, format = "e", digits = 2)) %>%
-        #     dplyr::select(., Name, `Measured mass`, `Expected mass`, 
+        #     dplyr::select(., Name, `Measured mass`, `Expected mass`,
         #                   `Delta mass from expected`,
         #                   `Delta mass from most intense`, Intensity, `Local Rel. Int. (%)`)
-        #   
+        #
         #   samps = map2(expected, byos_files[2:length(byos_files)], function(x,y){
-        #     
+        #
         #     red2 = y %>%
         #       dplyr::select(., Name, Mass, `Expected mass`, Intensity) %>%
         #       mutate(Mass = as.numeric(Mass),
@@ -254,25 +257,24 @@ server = function(input, output, session){
         #       mutate("Local Rel. Int. (%)" = round(Intensity / dplyr::first(Intensity) * 100, 2), "%") %>%
         #       dplyr::rename(., "Measured mass" = Mass) %>%
         #       mutate(Intensity = formatC(Intensity, format = "e", digits = 2)) %>%
-        #       dplyr::select(., Name, `Measured mass`, `Expected mass (ilab)`, `Delta mass from expected (ilab)`, 
+        #       dplyr::select(., Name, `Measured mass`, `Expected mass (ilab)`, `Delta mass from expected (ilab)`,
         #                     `Expected mass (byos)` = `Expected mass`, `Delta mass from expected (byos)`,
         #                     `Delta mass from most intense`, Intensity, `Local Rel. Int. (%)`)
         #   })
-        #   
+        #
         #   lst = c(list(nist), samps)
-        #   
+        #
         # }
-        # 
+        #
         # byosConvert(byos_files = byosDf(),
         #             expected_masses_file = byosExpectedFile(),
         #             expected_masses_vector = byosExpectedInput())
-        
+
       }
       
-    })
-    
-  })
-  
+
+  )
+
   output$dataframe = DT::renderDataTable(run())
   
   #Download excel spreadsheet
@@ -281,14 +283,27 @@ server = function(input, output, session){
     filename = function() {
       paste0(format(Sys.time(),'%Y%m%d_%H%M'), "_", input$outputFileName, "_postprocessed.xlsx" )
     },
-    content = function(file){
+    content = function(file) {
       hs = createStyle(textDecoration = "Bold", wrapText = TRUE)
-      write.xlsx(output$dataframe, file, 
+      write.xlsx(output$dataframe, file,
                  sheetName = ByosSheetNames(), overwrite = TRUE, headerStyle = hs)
-      
+
     }
   )
 
 }
 
 shinyApp(ui, server)
+
+
+
+
+
+
+
+
+
+
+
+
+
