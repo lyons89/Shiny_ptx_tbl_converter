@@ -1,10 +1,8 @@
 # Load Packages ---
 library(shiny)
 library(tidyverse)
-#library(openxlsx)
 library(readxl)
 library(DT)
-library(data.table)
 
 # if(!require(shiny)){
 #   install.packages("shiny")
@@ -154,7 +152,7 @@ server = function(input, output, session){
   spectroStats = reactive({
     
     req(input$SpectroStatsFile)
-    file = fread(input$SpectroStatsFile$datapath)
+    file = read.delim(input$SpectroStatsFile$datapath, sep = "\t", check.names = FALSE)
     return(file)
     
   })
@@ -162,7 +160,7 @@ server = function(input, output, session){
   spectroQuant = reactive({
     
     req(input$SpectroQuantFile)
-    file = fread(input$SpectroQuantFile$datapath)
+    file = read.delim(input$SpectroQuantFile$datapath, sep = "\t", check.names = FALSE)
     return(file)
     
   })
