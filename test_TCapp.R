@@ -1,16 +1,18 @@
 # Load Packages ---
 library(shiny)
-# library(dplyr)
-# library(magrittr)
-# library(tidyr)
-# library(purrr)
-# library(stringr)
 library(tidyverse)
-library(openxlsx)
+#library(openxlsx)
 library(readxl)
 library(DT)
 library(data.table)
 
+# if(!require(shiny)){
+#   install.packages("shiny")
+#   library(shiny)
+# }
+
+
+# Functions
 extract <- function(text) {
   text <- gsub(" ", "", text)
   split <- strsplit(text, ",")[[1]]
@@ -51,7 +53,7 @@ import_pers = function(file_loc){
 
 options(shiny.maxRequestSize=30*1024^2) # increase server.R limit to 30MB file size
 
-# user interface ----
+
 ui <- navbarPage("Table Converter",
                  tabPanel("File Upload",
                           sidebarLayout(
@@ -109,7 +111,9 @@ ui <- navbarPage("Table Converter",
                             ),
                             mainPanel(
                               DT::dataTableOutput("df2"))
-                            )))
+                            )),
+                 tabPanel("Manual",
+                          includeMarkdown("manual.md")))
                               
 server = function(input, output, session){
   
@@ -135,7 +139,7 @@ server = function(input, output, session){
   byosExpectedFile = reactive({
     
     req(input$byosExpectedFile)
-    file = read.xlsx(input$byosExpectedFile$datapath, sheet=1)[,2]
+    file = unlist(read_excel(input$byosExpectedFile$datapath, sheet=1)[,2])
     return(file)
     
   })
@@ -261,10 +265,10 @@ server = function(input, output, session){
                    Intensity = as.numeric(Intensity)) %>%
             arrange(desc(Intensity)) %>%
             mutate(`Expected mass` = as.numeric(`Expected mass`)) %>%
-            mutate("Delta mass from expected (ilab)" = Mass - x) %>%
-            mutate("Delta mass from expected (byos)" = Mass - `Expected mass`) %>%
+            mutate("Delta mass from expected (ilab)" = round((Mass - x), 4)) %>%
+            mutate("Delta mass from expected (byos)" = round((Mass - `Expected mass`), 4)) %>%
             mutate("Expected mass (ilab)" = rep(x, nrow(.))) %>%
-            mutate("Delta mass from most intense" = dplyr::first(Mass) - Mass)  %>%
+            mutate("Delta mass from most intense" = round((dplyr::first(Mass) - Mass), 4))  %>%
             mutate("Local Rel. Int. (%)" = round(Intensity / dplyr::first(Intensity) * 100, 2), "%") %>%
             dplyr::rename(., "Measured mass" = Mass) %>%
             mutate(Intensity = formatC(Intensity, format = "e", digits = 2)) %>%
@@ -291,8 +295,8 @@ server = function(input, output, session){
     stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
       dplyr::select(., comparison = starts_with("Comparison"), ProteinGroups, UniquePeptides = `# Unique Total Peptides`,
                     log2FC = `AVG Log2 Ratio`, pvalue = Pvalue, qvalue = Qvalue) %>%
-      dplyr::mutate(pvalue = round(pvalue, 8),
-                    qvalue = round(qvalue, 8),
+      dplyr::mutate(pvalue = round(pvalue, 10),
+                    qvalue = round(qvalue, 10),
                     log2FC = round(log2FC, 4)) %>%
       tidyr::pivot_wider(., names_from = comparison, values_from = c(log2FC, pvalue, qvalue))
 
