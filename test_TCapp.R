@@ -1,13 +1,28 @@
 # Load Packages ---
-library(shiny)
-library(tidyverse)
-library(readxl)
-library(DT)
+# library(shiny)
+# library(tidyverse)
+# library(openxlsx)
+# library(DT)
 
-# if(!require(shiny)){
-#   install.packages("shiny")
-#   library(shiny)
-# }
+if(!require(shiny)){
+  install.packages("shiny")
+  library(shiny)
+}
+
+if(!require(tidyverse)){
+  install.packages("tidyverse")
+  library(tidyverse)
+}
+
+if(!require(openxlsx)){
+  install.packages("openxlsx")
+  library(openxlsx)
+}
+
+if(!require(DT)){
+  install.packages("DT")
+  library(DT)
+}
 
 
 # Functions
@@ -19,20 +34,19 @@ extract <- function(text) {
 
 APMS_MQ = function(df){
   
-  
-  untilt = df %>%
+  df %>%
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Potential contaminant", "Peptides",  
                               "Razor + unique peptides", "Unique peptides")), 
                   contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), starts_with("MS/MS count")) %>%
-    mutate(across(.cols = starts_with("LFQ intensity"), ~round(.x, 2)),
+    dplyr::mutate(across(.cols = starts_with("LFQ intensity"), ~round(.x, 2)),
            across(.cols = contains("Difference"), ~round(.x, 2)),
            across(.cols = contains("p-value"), ~round(.x, 8))) %>%
-    mutate("Summed LFQ Intensity" = round(rowSums(2^across(.cols = starts_with("LFQ intensity")), na.rm=TRUE)), 0) %>%
+    dplyr::mutate("Summed LFQ Intensity" = round(rowSums(2^across(.cols = starts_with("LFQ intensity")), na.rm=TRUE)), 0) %>%
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Razor + unique peptides", "Potential contaminant")),
                   contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), "Peptides",
                   "Unique peptides", starts_with("Sequence coverage"), "Summed LFQ Intensity", starts_with("MS/MS count"),
                   -contains("significant", ignore.case=FALSE)) %>%
-    arrange(.,desc(`Summed LFQ Intensity`))
+    dplyr::arrange(.,desc(`Summed LFQ Intensity`))
   
   
 }
@@ -119,9 +133,9 @@ server = function(input, output, session){
   byosDf = reactive({
     
     req(input$byosFile)
-    sheet_names = excel_sheets(input$byosFile$datapath) # extract all excel sheet names
+    sheet_names = getSheetNames(input$byosFile$datapath) # extract all excel sheet names
     file1 = lapply(sheet_names, function(x){
-      as.data.frame(read_excel(input$byosFile$datapath, sheet = x)) # read in each tab
+      as.data.frame(read.xlsx(input$byosFile$datapath, sheet = x, sep.names = " ")) # read in each tab
     })
     names(file1) = sheet_names
     return(file1)
@@ -130,14 +144,14 @@ server = function(input, output, session){
   
   ByosSheetNames = reactive({
     req(input$byosFile)
-    sheet_names = excel_sheets(input$byosFile$datapath) # will get "path" must be string error if I don't have the $datapath part
+    sheet_names = getSheetNames(input$byosFile$datapath) # will get "path" must be string error if I don't have the $datapath part
     return(sheet_names)
   })
   
   byosExpectedFile = reactive({
     
     req(input$byosExpectedFile)
-    file = unlist(read_excel(input$byosExpectedFile$datapath, sheet=1)[,2])
+    file = read.xlsx(input$byosExpectedFile$datapath, sheet=1)[,2]
     return(file)
     
   })
