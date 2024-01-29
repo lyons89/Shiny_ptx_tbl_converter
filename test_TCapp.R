@@ -23,6 +23,10 @@ if(!require(DT)){
   install.packages("DT")
   library(DT)
 }
+if(!require(vroom)){
+  install.packages("vroom")
+  library(vroom)
+}
 
 
 # Functions
@@ -36,7 +40,7 @@ APMS_MQ = function(df){
   
   df %>%
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Potential contaminant", "Peptides",  
-                              "Razor + unique peptides", "Unique peptides")), 
+                              "Razor + unique peptides", "Unique peptides", "Sequence coverage [%]")), 
                   contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), starts_with("MS/MS count")) %>%
     dplyr::mutate(across(.cols = starts_with("LFQ intensity"), ~round(.x, 2)),
            across(.cols = contains("Difference"), ~round(.x, 2)),
@@ -44,7 +48,7 @@ APMS_MQ = function(df){
     dplyr::mutate("Summed LFQ Intensity" = round(rowSums(2^across(.cols = starts_with("LFQ intensity")), na.rm=TRUE)), 0) %>%
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Razor + unique peptides", "Potential contaminant")),
                   contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), "Peptides",
-                  "Unique peptides", starts_with("Sequence coverage"), "Summed LFQ Intensity", starts_with("MS/MS count"),
+                  "Unique peptides", "Sequence coverage [%]", starts_with("Sequence coverage"), "Summed LFQ Intensity", starts_with("MS/MS count"),
                   -contains("significant", ignore.case=FALSE)) %>%
     dplyr::arrange(.,desc(`Summed LFQ Intensity`))
   
@@ -63,7 +67,7 @@ import_pers = function(file_loc){
 }
 
 
-options(shiny.maxRequestSize=30*1024^2) # increase server.R limit to 30MB file size
+options(shiny.maxRequestSize=100*1024^2) # increase server.R limit to 30MB file size
 
 
 ui <- navbarPage("Table Converter",
@@ -93,10 +97,10 @@ ui <- navbarPage("Table Converter",
                                 condition = "input.SearchEngine == 'Spectronaut'",
                                 fileInput("SpectroStatsFile", "Choose a Candidate xls stats file:",
                                           multiple = FALSE,
-                                          accept = c(".xls")), 
+                                          accept = c(".xls", ".tsv")), 
                                 fileInput("SpectroQuantFile", "Choose a Report xls quant file:",
                                           multiple = FALSE,
-                                          accept = c(".xls")),
+                                          accept = c(".xls", ".tsv")),
                                 radioButtons("transformSpectro", "How do you want the sample quantity values",
                                              choices = c("non-transformed", "Log2", "Both")),
                                 radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
@@ -166,7 +170,8 @@ server = function(input, output, session){
   spectroStats = reactive({
     
     req(input$SpectroStatsFile)
-    file = read.delim(input$SpectroStatsFile$datapath, sep = "\t", check.names = FALSE)
+    #file = read.delim(input$SpectroStatsFile$datapath, sep = "\t", check.names = FALSE)
+    file = vroom(input$SpectroStatsFile$datapath, delim = "\t", na = c("NA"), show_col_types = FALSE, progress = FALSE)
     return(file)
     
   })
@@ -174,7 +179,8 @@ server = function(input, output, session){
   spectroQuant = reactive({
     
     req(input$SpectroQuantFile)
-    file = read.delim(input$SpectroQuantFile$datapath, sep = "\t", check.names = FALSE)
+    #file = read.delim(input$SpectroQuantFile$datapath, sep = "\t", check.names = FALSE)
+    file = vroom(input$SpectroQuantFile$datapath, delim = "\t", na = c("NA"), show_col_types = FALSE, progress = FALSE)
     return(file)
     
   })
@@ -299,7 +305,7 @@ server = function(input, output, session){
   conv_Spec = eventReactive(list(input$convert, input$SearchEngine == "Spectronaut"),{
     
     column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", 
-                          "ProteinDescriptions", "FASTAHeader")
+                          "ProteinDescriptions", "FASTAHeader", "CellularComponent", "BiologicalProcess", "MolecularFunction")
     
     stats_df = spectroStats()
     quant_df = spectroQuant()
@@ -314,14 +320,15 @@ server = function(input, output, session){
 
     
     quant2 = quant_df %>%
-      dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FASTAHeader")), ends_with("PG.Quantity")) %>%
+      dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FASTAHeader",
+                                "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PG.Quantity")) %>%
       dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
       dplyr::select(., any_of(column_names_keep), ends_with("PG.Quantity")) %>%
       dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE)),0) %>%
       dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 2))) %>%
       dplyr::left_join(., stats2, by = "ProteinGroups") %>%
       dplyr::select(., any_of(c(column_names_keep, 
-                    "UniquePeptides", "SummedQuantity")), 
+                    "UniquePeptides", "SummedQuantity")), # unique peptides column comes from the candidates dataframe
                     starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
       dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
       dplyr::arrange(., desc("SummedQuantity"))
@@ -344,14 +351,13 @@ server = function(input, output, session){
     }  
     
     
+    
     ind_comps = lapply(gsub("\\s+", "", unique(stats_df$`Comparison (group1/group2)`)), function(x){
       
       int = quant2 %>%
         dplyr::select(., any_of(c(column_names_keep, 
-                      "UniquePeptides", "SummedQuantity")), contains(x), ends_with("PG.Quantity")) %>%
-        dplyr::select(., any_of(c(column_names_keep, 
-                      "UniquePeptides", "SummedQuantity")), log2FC = starts_with("log2FC"), 
-                      pvalue = starts_with("pvalue"), qvalue = starts_with("qvalue"), ends_with("PG.Quantity")) %>%
+                      "UniquePeptides", "SummedQuantity")), log2FC = paste0("log2FC_", x), 
+                      pvalue = paste0("pvalue_", x), qvalue = paste0("qvalue_", x), ends_with("PG.Quantity")) %>%
         dplyr::filter((log2FC > 0.6 | log2FC < -0.6) & !!as.symbol(input$statsFilter) < input$statsValue) %>%
         dplyr::arrange(., desc("log2FC"))
       
