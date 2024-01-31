@@ -305,7 +305,7 @@ server = function(input, output, session){
   conv_Spec = eventReactive(list(input$convert, input$SearchEngine == "Spectronaut"),{
     
     column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", 
-                          "ProteinDescriptions", "FASTAHeader", "CellularComponent", "BiologicalProcess", "MolecularFunction")
+                          "ProteinDescriptions", "FastaFiles", "FASTAHeader", "CellularComponent", "BiologicalProcess", "MolecularFunction")
     
     stats_df = spectroStats()
     quant_df = spectroQuant()
@@ -320,7 +320,7 @@ server = function(input, output, session){
 
     
     quant2 = quant_df %>%
-      dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FASTAHeader",
+      dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.FASTAHeader",
                                 "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PG.Quantity")) %>%
       dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
       dplyr::select(., any_of(column_names_keep), ends_with("PG.Quantity")) %>%
