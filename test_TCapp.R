@@ -57,17 +57,17 @@ APMS_MQ = function(df){
 
 import_pers = function(file_loc){
   
-  firstRead = read.delim(file_loc, sep = "\t", na.strings = c("", "NaN", "NA"), check.names = FALSE)
+  firstRead = read.delim(file_loc, sep = "\t", na.strings = c("NaN", "NA"), check.names = FALSE)
   
   finalRead = read.delim(file_loc, sep = "\t", skip = sum(grepl("#!", firstRead[,1])), 
-                         col.names = names(firstRead), na.strings = c("", "NaN", "NA"), check.names = FALSE)
+                         col.names = names(firstRead), na.strings = c("NaN", "NA"), check.names = FALSE)
   # skips the first several rows which contain a #!
   # also renames columns from the first read, and converts blank, NaN and NA values to N/A
   
 }
 
 
-options(shiny.maxRequestSize=100*1024^2) # increase server.R limit to 30MB file size
+options(shiny.maxRequestSize=100*1024^2) # increase server.R limit to 100MB file size
 
 
 ui <- navbarPage("Table Converter",
@@ -89,7 +89,7 @@ ui <- navbarPage("Table Converter",
                                              choices = (c("Manual", "xlsx"))),
                                 fileInput("byosExpectedFile", "upload a xlsx file containing expected masses"),
                                 textInput("expectedMasses", label = "Optional: Add expected masses, only separated by a comma",
-                                          value = ""),
+                                          value = "")
                                 #selectInput("tab2", "Transformed Tab", choices = NULL),
                               ),
                               conditionalPanel(
@@ -118,7 +118,7 @@ ui <- navbarPage("Table Converter",
                                           accept = c(".txt")),
                                 h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
                                 radioButtons("PerseusFilterOption", "Choose method to filter data by:",
-                                             choices = (c("pval", "pval & log2FC"))),
+                                             choices = (c("pval", "pval & log2FC")))
                               ),
                               selectInput("tab2", "Select tab to view", choices = NULL),
                               textInput("outputFileName", label = "Export file name:", value = ""),
@@ -171,7 +171,7 @@ server = function(input, output, session){
     
     req(input$SpectroStatsFile)
     #file = read.delim(input$SpectroStatsFile$datapath, sep = "\t", check.names = FALSE)
-    file = vroom(input$SpectroStatsFile$datapath, delim = "\t", na = c("NA"), show_col_types = FALSE, progress = FALSE, num_threads = 4)
+    file = vroom(input$SpectroStatsFile$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 2)
     return(file)
     
   })
@@ -180,7 +180,7 @@ server = function(input, output, session){
     
     req(input$SpectroQuantFile)
     #file = read.delim(input$SpectroQuantFile$datapath, sep = "\t", check.names = FALSE)
-    file = vroom(input$SpectroQuantFile$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 4)
+    file = vroom(input$SpectroQuantFile$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 2)
     return(file)
     
   })
@@ -313,9 +313,6 @@ server = function(input, output, session){
     stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
       dplyr::select(., comparison = starts_with("Comparison"), Group,
                     log2FC = `AVG Log2 Ratio`, pvalue = Pvalue, qvalue = Qvalue) %>%
-      dplyr::mutate(pvalue = round(pvalue, 10),
-                    qvalue = round(qvalue, 10),
-                    log2FC = round(log2FC, 4)) %>%
       tidyr::pivot_wider(., names_from = comparison, values_from = c(log2FC, pvalue, qvalue))
 
     
@@ -325,7 +322,7 @@ server = function(input, output, session){
       dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
       dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
       dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE)),0) %>%
-      dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 2))) %>%
+      dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
       dplyr::left_join(., stats2, by = c("ProteinGroups" = "Group")) %>%
       dplyr::select(., any_of(c(report_column_names_keep[1:4], "UniquePeptides" = "NrOfStrippedSequencesIdentified (Experiment-wide)", 
                                 report_column_names_keep[6:10])), # unique peptides column comes from the candidates dataframe
@@ -347,7 +344,7 @@ server = function(input, output, session){
       
       quant2 = quant2 %>%
         dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~log2(.x), .names = "log2_{.col}")) %>%
-        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 2))) %>%
+        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
         dplyr::select(., any_of(cols_to_keep), starts_with("log2_"), starts_with("[")) %>%
         dplyr::arrange(., desc(SummedQuantity))
         
@@ -444,7 +441,7 @@ server = function(input, output, session){
     content = function(file){
       hs = createStyle(textDecoration = "Bold", wrapText = TRUE)
       write.xlsx(finalOut(), file,
-                 sheetName = finalSheetnames(), overwrite = TRUE, headerStyle = hs, keepNA = TRUE, na.string = "NA")
+                 sheetName = finalSheetnames(), overwrite = TRUE, headerStyle = hs, keepNA = TRUE)
     }
     
   )
