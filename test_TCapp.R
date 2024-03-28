@@ -57,18 +57,22 @@ APMS_MQ = function(df){
 
 import_pers = function(file_loc){
   
-  firstRead = read.delim(file_loc, sep = "\t", na.strings = c("", "NaN", "NA"), check.names = FALSE)
+  firstRead = read.delim(file_loc, sep = "\t", na.strings = c("NaN", "NA"), check.names = FALSE)
   
   finalRead = read.delim(file_loc, sep = "\t", skip = sum(grepl("#!", firstRead[,1])), 
-                         col.names = names(firstRead), na.strings = c("", "NaN", "NA"), check.names = FALSE)
+                         col.names = names(firstRead), na.strings = c("NaN", "NA"), check.names = FALSE)
   # skips the first several rows which contain a #!
   # also renames columns from the first read, and converts blank, NaN and NA values to N/A
   
 }
 
 
-options(shiny.maxRequestSize=100*1024^2) # increase server.R limit to 30MB file size
+options(shiny.maxRequestSize=100*1024^2) # increase server.R limit to 100MB file size
 
+
+#######################################################
+### INTERFACE
+#######################################################
 
 ui <- navbarPage("Table Converter",
                  tabPanel("File Upload",
@@ -76,7 +80,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("MQ-Perseus", "PD-Perseus", "Byos", "Spectronaut")),
+                                           choices = c("MQ-Perseus", "PD-Phos", "Byos", "Spectronaut")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -89,18 +93,23 @@ ui <- navbarPage("Table Converter",
                                              choices = (c("Manual", "xlsx"))),
                                 fileInput("byosExpectedFile", "upload a xlsx file containing expected masses"),
                                 textInput("expectedMasses", label = "Optional: Add expected masses, only separated by a comma",
-                                          value = ""),
+                                          value = "")
                                 #selectInput("tab2", "Transformed Tab", choices = NULL),
                               ),
                               conditionalPanel(
                                 h3("Spectronaut"),
                                 condition = "input.SearchEngine == 'Spectronaut'",
-                                fileInput("SpectroStatsFile", "Choose a Candidate xls stats file:",
+                                fileInput("SpectroStatsFile", "Choose a Candidate stats file (xls or tsv):",
                                           multiple = FALSE,
                                           accept = c(".xls", ".tsv")), 
-                                fileInput("SpectroQuantFile", "Choose a Report xls quant file:",
+                                fileInput("SpectroQuantFile", "Choose a Report quant file (xls or tsv):",
                                           multiple = FALSE,
                                           accept = c(".xls", ".tsv")),
+                                fileInput("SpectroAnnoFile", "Optional ConditionSetup file (tsv):",
+                                          multiple = FALSE,
+                                          accept = c(".tsv")),
+                                radioButtons("SpectroAnnoOption", "Are you using a ConditionSetup file?",
+                                             choices = c("no", "yes"), selected = "no"),
                                 radioButtons("transformSpectro", "How do you want the sample quantity values",
                                              choices = c("non-transformed", "Log2", "Both")),
                                 radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
@@ -118,7 +127,7 @@ ui <- navbarPage("Table Converter",
                                           accept = c(".txt")),
                                 h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
                                 radioButtons("PerseusFilterOption", "Choose method to filter data by:",
-                                             choices = (c("pval", "pval & log2FC"))),
+                                             choices = (c("pval", "pval & log2FC")))
                               ),
                               selectInput("tab2", "Select tab to view", choices = NULL),
                               textInput("outputFileName", label = "Export file name:", value = ""),
@@ -131,6 +140,9 @@ ui <- navbarPage("Table Converter",
                  tabPanel("Manual",
                           includeMarkdown("manual.md")))
                               
+#######################################################
+### SERVER 
+#######################################################
 server = function(input, output, session){
   
   
@@ -171,7 +183,7 @@ server = function(input, output, session){
     
     req(input$SpectroStatsFile)
     #file = read.delim(input$SpectroStatsFile$datapath, sep = "\t", check.names = FALSE)
-    file = vroom(input$SpectroStatsFile$datapath, delim = "\t", na = c("NA"), show_col_types = FALSE, progress = FALSE, num_threads = 4)
+    file = vroom(input$SpectroStatsFile$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 2)
     return(file)
     
   })
@@ -180,10 +192,19 @@ server = function(input, output, session){
     
     req(input$SpectroQuantFile)
     #file = read.delim(input$SpectroQuantFile$datapath, sep = "\t", check.names = FALSE)
-    file = vroom(input$SpectroQuantFile$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 4)
+    file = vroom(input$SpectroQuantFile$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 2)
     return(file)
     
   })
+  
+
+  spectroAnno = reactive({
+    req(input$SpectroAnnoFile)
+    file = vroom(input$SpectroAnnoFile$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE)
+    return(file)
+  })
+    
+
   
   spectroSheetNames = reactive({
     
@@ -310,15 +331,25 @@ server = function(input, output, session){
     stats_df = spectroStats()
     quant_df = spectroQuant()
     
+    anno_df = eventReactive(list(input$convert, input$SearchEngine == "Spectronaut", input$SpectroAnnoOption == "yes"),{
+      
+      anno_df = spectroAnno()
+      
+      # format the annotation file from spectronaut
+      anno_df2 = anno_df %>%
+        dplyr::select(., any_of(c("#", "Condition", "Replicate"))) %>%
+        dplyr::mutate(new_name = paste0(Condition, "_", Replicate))
+      
+    })
+    
+    # format the candidate (Stats) file from spectronaut
     stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
       dplyr::select(., comparison = starts_with("Comparison"), Group,
                     log2FC = `AVG Log2 Ratio`, pvalue = Pvalue, qvalue = Qvalue) %>%
-      dplyr::mutate(pvalue = round(pvalue, 10),
-                    qvalue = round(qvalue, 10),
-                    log2FC = round(log2FC, 4)) %>%
+      #dplyr::mutate(log2FC = round(log2FC, 4)) %>%
       tidyr::pivot_wider(., names_from = comparison, values_from = c(log2FC, pvalue, qvalue))
 
-    
+    # format the report (quant) file from spectronaut
     quant2 = quant_df %>%
       dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.NrOfStrippedSequencesIdentified (Experiment-wide)",
                                 "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PG.Quantity")) %>%
@@ -331,7 +362,14 @@ server = function(input, output, session){
                                 report_column_names_keep[6:10])), # unique peptides column comes from the candidates dataframe
                     starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), "SummedQuantity", ends_with("PG.Quantity")) %>%
       dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
-      dplyr::arrange(., desc(SummedQuantity))
+      dplyr::arrange(., desc(SummedQuantity)) 
+    
+    if(input$SpectroAnnoOption == "yes"){
+      
+      quant2 = quant2 %>%
+        dplyr::rename_with(~ paste0("abundance_", anno_df2$new_name), ends_with("PG.Quantity"))
+        
+    }
 
     if(input$transformSpectro == "Log2"){
       
@@ -444,7 +482,7 @@ server = function(input, output, session){
     content = function(file){
       hs = createStyle(textDecoration = "Bold", wrapText = TRUE)
       write.xlsx(finalOut(), file,
-                 sheetName = finalSheetnames(), overwrite = TRUE, headerStyle = hs, keepNA = TRUE, na.string = "NA")
+                 sheetName = finalSheetnames(), overwrite = TRUE, headerStyle = hs, keepNA = TRUE)
     }
     
   )
