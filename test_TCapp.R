@@ -76,7 +76,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("MQ-Perseus", "PD-Perseus", "Byos", "Spectronaut")),
+                                           choices = c("MQ-Perseus", "PD-Phos", "Byos", "Spectronaut")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -109,11 +109,21 @@ ui <- navbarPage("Table Converter",
                               ),
                               conditionalPanel(
                                 h3("Perseus"),
-                                condition = "input.SearchEngine == 'MQ-Perseus' || input.SearchEngine == 'PD-Perseus'", # can this have 2 options
+                                condition = "input.SearchEngine == 'MQ-Perseus'", # can this have 2 options
                                 fileInput("perseusUnimputedFile", "Select the UNIMPUTED Perseus txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
                                 fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
+                                          multiple = FALSE,
+                                          accept = c(".txt")),
+                                h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
+                                radioButtons("PerseusFilterOption", "Choose method to filter data by:",
+                                             choices = (c("pval", "pval & log2FC")))
+                              ),
+                              conditionalPanel(
+                                h3("Proteome Discoverer 3.1"),
+                                condition = "input.SearchEngine == 'PD-Phos'",
+                                fileInput("PDpeptideIsoform", "Select the Peptide Isofrom txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
                                 h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
