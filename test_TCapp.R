@@ -67,7 +67,7 @@ import_pers = function(file_loc){
 }
 
 
-options(shiny.maxRequestSize=100*1024^2) # increase server.R limit to 100MB file size
+options(shiny.maxRequestSize=200*1024^2) # increase server.R limit to 200MB file size
 
 
 ui <- navbarPage("Table Converter",
@@ -76,7 +76,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("MQ-Perseus", "PD-Perseus", "Byos", "Spectronaut")),
+                                           choices = c("MQ-Perseus", "PD-Phos", "Byos", "Spectronaut")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -109,11 +109,21 @@ ui <- navbarPage("Table Converter",
                               ),
                               conditionalPanel(
                                 h3("Perseus"),
-                                condition = "input.SearchEngine == 'MQ-Perseus' || input.SearchEngine == 'PD-Perseus'", # can this have 2 options
+                                condition = "input.SearchEngine == 'MQ-Perseus'", # can this have 2 options
                                 fileInput("perseusUnimputedFile", "Select the UNIMPUTED Perseus txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
                                 fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
+                                          multiple = FALSE,
+                                          accept = c(".txt")),
+                                h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
+                                radioButtons("PerseusFilterOption", "Choose method to filter data by:",
+                                             choices = (c("pval", "pval & log2FC")))
+                              ),
+                              conditionalPanel(
+                                h3("Proteome Discoverer 3.1"),
+                                condition = "input.SearchEngine == 'PD-Phos'",
+                                fileInput("PDpeptideIsoform", "Select the Peptide Isofrom txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
                                 h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
@@ -189,7 +199,10 @@ server = function(input, output, session){
     
     df = spectroStats()
     
-    sheetnames = unique(df$`Comparison (group1/group2)`) %>%
+    rm_pool = df %>%
+      filter(!grepl("pool", tolower(`Comparison (group1/group2)`)))
+      
+    sheetnames = unique(rm_pool$`Comparison (group1/group2)`) %>%
       gsub(" ", "", .) %>%
       gsub("/", "-", .)
     
@@ -304,8 +317,9 @@ server = function(input, output, session){
   
   conv_Spec = eventReactive(list(input$convert, input$SearchEngine == "Spectronaut"),{
     
-    report_column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", "ProteinDescriptions", "NrOfStrippedSequencesIdentified (Experiment-wide)",
-                                 "FastaFiles", "FastaHeaders", "CellularComponent", "BiologicalProcess", "MolecularFunction")
+    report_column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", "ProteinDescriptions","FastaFiles", "FastaHeaders",
+                                 "NrOfStrippedSequencesIdentified (Experiment-wide)",
+                                 "CellularComponent", "BiologicalProcess", "MolecularFunction")
     
     stats_df = spectroStats()
     quant_df = spectroQuant()
@@ -313,9 +327,9 @@ server = function(input, output, session){
     stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
       dplyr::select(., comparison = starts_with("Comparison"), Group,
                     log2FC = `AVG Log2 Ratio`, pvalue = Pvalue, qvalue = Qvalue) %>%
+      dplyr::filter(!grepl("pool", tolower(comparison))) %>%
       tidyr::pivot_wider(., names_from = comparison, values_from = c(log2FC, pvalue, qvalue))
 
-    
     quant2 = quant_df %>%
       dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.NrOfStrippedSequencesIdentified (Experiment-wide)",
                                 "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PG.Quantity")) %>%
@@ -324,10 +338,10 @@ server = function(input, output, session){
       dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE)),0) %>%
       dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
       dplyr::left_join(., stats2, by = c("ProteinGroups" = "Group")) %>%
-      dplyr::select(., any_of(c(report_column_names_keep[1:4], "UniquePeptides" = "NrOfStrippedSequencesIdentified (Experiment-wide)", 
-                                report_column_names_keep[6:10])), # unique peptides column comes from the candidates dataframe
-                    starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), "SummedQuantity", ends_with("PG.Quantity")) %>%
+      dplyr::select(., any_of(c(report_column_names_keep[1:10], "SummedQuantity")), # unique peptides column comes from the candidates dataframe
+                    starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
       dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
+      dplyr::rename(., "UniquePeptides" = `NrOfStrippedSequencesIdentified(Experiment-wide)`) %>%
       dplyr::arrange(., desc(SummedQuantity))
 
     if(input$transformSpectro == "Log2"){
@@ -351,14 +365,15 @@ server = function(input, output, session){
       
     }  
     
+    stats_rmPool = stats_df %>%
+      dplyr::filter(!grepl("pool", tolower(`Comparison (group1/group2)`)))
     
-    ind_comps = lapply(gsub("\\s+", "", unique(stats_df$`Comparison (group1/group2)`)), function(x){
+    ind_comps = lapply(gsub("\\s+", "", unique(stats_rmPool$`Comparison (group1/group2)`)), function(x){
       
       int = quant2 %>%
         dplyr::filter(., !!as.symbol(paste0("log2FC_",x)) > 0.6 | !!as.symbol(paste0("log2FC_", x)) < -0.6) %>%
         dplyr::filter(., !!as.symbol(paste0(input$statsFilter, "_", x)) < input$statsValue) %>%
         dplyr::arrange(., desc(!!as.symbol(paste0("log2FC_", x))))
-      
       
     })
     
@@ -393,7 +408,7 @@ server = function(input, output, session){
         
         return(lst)
       }
-      if(input$PerseusFilterOption == "pval & FC"){
+      if(input$PerseusFilterOption == "pval & log2FC"){
         
         filt = map2(log_names, pvalue_names, function(x,y){
           int = cleaned_imputed %>%
