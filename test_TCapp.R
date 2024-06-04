@@ -67,7 +67,7 @@ import_pers = function(file_loc){
 }
 
 
-options(shiny.maxRequestSize=200*1024^2) # increase server.R limit to 100MB file size
+options(shiny.maxRequestSize=200*1024^2) # increase server.R limit to 200MB file size
 
 
 ui <- navbarPage("Table Converter",
@@ -408,7 +408,7 @@ server = function(input, output, session){
         
         return(lst)
       }
-      if(input$PerseusFilterOption == "pval & FC"){
+      if(input$PerseusFilterOption == "pval & log2FC"){
         
         filt = map2(log_names, pvalue_names, function(x,y){
           int = cleaned_imputed %>%
