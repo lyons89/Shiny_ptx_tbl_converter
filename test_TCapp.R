@@ -46,7 +46,7 @@ APMS_MQ = function(df){
            across(.cols = contains("Difference"), ~round(.x, 2)),
            across(.cols = contains("p-value"), ~round(.x, 8))) %>%
     dplyr::mutate("Summed LFQ Intensity" = round(rowSums(2^across(.cols = starts_with("LFQ intensity")), na.rm=TRUE)), 0) %>%
-    dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Razor + unique peptides", "Potential contaminant")),
+    dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Gene names", "Gene name", "Fasta headers", "Razor + unique peptides", "Potential contaminant")),
                   contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), "Peptides",
                   "Unique peptides", "Sequence coverage [%]", starts_with("Sequence coverage"), "Summed LFQ Intensity", starts_with("MS/MS count"),
                   -contains("significant", ignore.case=FALSE)) %>%
@@ -347,8 +347,8 @@ server = function(input, output, session){
     if(input$transformSpectro == "Log2"){
       
       quant2 = quant2 %>%
-        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~log2(.x), .names = "log2_{.col}")) %>%
-        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 2))) %>%
+        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~log2(.x), .names = "log2_{.col}"), .keep = "unused") %>%
+        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
         dplyr::arrange(., desc(SummedQuantity))
        
     }
@@ -371,7 +371,7 @@ server = function(input, output, session){
     ind_comps = lapply(gsub("\\s+", "", unique(stats_rmPool$`Comparison (group1/group2)`)), function(x){
       
       int = quant2 %>%
-        dplyr::filter(., !!as.symbol(paste0("log2FC_",x)) > 0.6 | !!as.symbol(paste0("log2FC_", x)) < -0.6) %>%
+        #dplyr::filter(., !!as.symbol(paste0("log2FC_",x)) > 0.6 | !!as.symbol(paste0("log2FC_", x)) < -0.6) %>%
         dplyr::filter(., !!as.symbol(paste0(input$statsFilter, "_", x)) < input$statsValue) %>%
         dplyr::arrange(., desc(!!as.symbol(paste0("log2FC_", x))))
       
@@ -451,7 +451,7 @@ server = function(input, output, session){
   
   output$download = downloadHandler(
     filename = function() {
-      paste0(format(Sys.time(),'%Y%m%d_%H%M'), "_", input$outputFileName, "_postprocessed.xlsx" )
+      paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_Results.xlsx" )
     },
     content = function(file){
       hs = createStyle(textDecoration = "Bold", wrapText = TRUE)
