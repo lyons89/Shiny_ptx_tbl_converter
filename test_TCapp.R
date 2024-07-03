@@ -76,7 +76,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("MQ-Perseus", "PD-Phos", "Byos", "Spectronaut")),
+                                           choices = c("MQ-Perseus", "Byos", "Spectronaut")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -95,17 +95,24 @@ ui <- navbarPage("Table Converter",
                               conditionalPanel(
                                 h3("Spectronaut"),
                                 condition = "input.SearchEngine == 'Spectronaut'",
-                                fileInput("SpectroStatsFile", "Choose a Candidate xls stats file:",
+                                fileInput("SpectroStatsFile", "Select a Candidate Stats file:",
                                           multiple = FALSE,
                                           accept = c(".xls", ".tsv")), 
-                                fileInput("SpectroQuantFile", "Choose a Report xls quant file:",
+                                fileInput("SpectroQuantFile", "Select a Report quant file:",
                                           multiple = FALSE,
                                           accept = c(".xls", ".tsv")),
+                                h4("Do you want to import the SpN Condition Setup File?"),
+                                radioButtons("AddConditions", "Select yes/no", choices = c("Yes", "No"), selected = "No"),
+                                conditionalPanel(
+                                  condition = "input.AddConditions == 'Yes'",
+                                  fileInput("SpectroConditions", "Select a Condition file:",
+                                            multiple = FALSE,
+                                            accept = c(".tsv"))
+                                ),
                                 radioButtons("transformSpectro", "How do you want the sample quantity values",
-                                             choices = c("non-transformed", "Log2", "Both")),
+                                             choices = c("non-transformed", "Log2", "Both"), selected = "Log2"),
                                 radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
-                                numericInput("statsValue", "stats value to filter by", value = "0.05")
-                                #selectInput("tab2", "Transformed Tab", choices = NULL),
+                                numericInput("statsValue", "stats value to filter by:", value = "0.05")
                               ),
                               conditionalPanel(
                                 h3("Perseus"),
@@ -114,16 +121,6 @@ ui <- navbarPage("Table Converter",
                                           multiple = FALSE,
                                           accept = c(".txt")),
                                 fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
-                                          multiple = FALSE,
-                                          accept = c(".txt")),
-                                h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
-                                radioButtons("PerseusFilterOption", "Choose method to filter data by:",
-                                             choices = (c("pval", "pval & log2FC")))
-                              ),
-                              conditionalPanel(
-                                h3("Proteome Discoverer 3.1"),
-                                condition = "input.SearchEngine == 'PD-Phos'",
-                                fileInput("PDpeptideIsoform", "Select the Peptide Isofrom txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
                                 h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
@@ -195,6 +192,16 @@ server = function(input, output, session){
     
   })
   
+  spectroCond = reactive({
+    
+    req(input$SpectroConditions)
+    #file = read.delim(input$SpectroQuantFile$datapath, sep = "\t", check.names = FALSE)
+    file = vroom(input$SpectroQuantFile$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 1)
+    return(file)
+    
+  })
+  
+  
   spectroSheetNames = reactive({
     
     df = spectroStats()
@@ -244,7 +251,6 @@ server = function(input, output, session){
     
     switch(input$SearchEngine,
            "MQ-Perseus" = perseusSheetNames(), 
-           "PD-Perseus" =  perseusSheetNames(),
            "Byos" = ByosSheetNames(),
            "Spectronaut" = spectroSheetNames())
     
@@ -323,7 +329,7 @@ server = function(input, output, session){
     
     stats_df = spectroStats()
     quant_df = spectroQuant()
-    
+
     stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
       dplyr::select(., comparison = starts_with("Comparison"), Group,
                     log2FC = `AVG Log2 Ratio`, pvalue = Pvalue, qvalue = Qvalue) %>%
@@ -342,8 +348,10 @@ server = function(input, output, session){
                     starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
       dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
       dplyr::rename(., "UniquePeptides" = `NrOfStrippedSequencesIdentified(Experiment-wide)`) %>%
-      dplyr::arrange(., desc(SummedQuantity))
+      dplyr::arrange(., desc(SummedQuantity)) %>%
+      Filter(function(x) !all(is.na(x)), .) # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
 
+    
     if(input$transformSpectro == "Log2"){
       
       quant2 = quant2 %>%
@@ -361,13 +369,32 @@ server = function(input, output, session){
         dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
         dplyr::select(., any_of(cols_to_keep), starts_with("log2_"), starts_with("[")) %>%
         dplyr::arrange(., desc(SummedQuantity))
-        
-      
     }  
     
+    
+    # if condition file was added, rename the quant column to match
+    # for some reason this code works when run on its own but not when run within Shiny??
+    if(input$AddConditions == "Yes"){
+      
+      cond_df = spectroCond()
+      
+      var_names = cond_df %>%
+        dplyr::select(., all_of(c("num", "Run Label", "Condition", "Replicate"))) %>%
+        dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>%
+        dplyr::mutate(samp_names = paste0("Log2_", Condition, "_", Replicate, "_Quantity")) %>%
+        dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+        tibble::deframe()
+      
+      quant2 = quant2 %>%
+        dplyr::rename(!!!var_names)
+      
+    }
+    
+    # removes any comparisons that have "pool" in them
     stats_rmPool = stats_df %>%
       dplyr::filter(!grepl("pool", tolower(`Comparison (group1/group2)`)))
     
+    # creates the comparison tabs by filtering on either p-value or q-value
     ind_comps = lapply(gsub("\\s+", "", unique(stats_rmPool$`Comparison (group1/group2)`)), function(x){
       
       int = quant2 %>%
@@ -379,6 +406,26 @@ server = function(input, output, session){
     
     lst = c(list(quant2), ind_comps)
     names(lst) = spectroSheetNames()
+    
+    # change the order of the p-values or q-values based on which was filtered on
+    if(input$statsFilter == "pvalue"){
+      lst = lapply(lst, function(x){
+        
+        tmp = x %>%
+          dplyr::select(., any_of(c(report_column_names_keep[1:10], "SummedQuantity")),
+                        starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("Quantity"))
+      
+        })
+    }
+    if(input$statsFilter == "qvalue"){
+      lst = lapply(lst, function(x){
+        
+        tmp = x %>%
+          dplyr::select(., any_of(c(report_column_names_keep[1:10], "SummedQuantity")), 
+                        starts_with("log2FC"), starts_with("qvalue"), starts_with("pvalue"), ends_with("Quantity"))
+      
+        })
+    }
     
     return(lst) 
   })
