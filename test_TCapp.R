@@ -333,7 +333,7 @@ server = function(input, output, session){
     stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
       dplyr::select(., comparison = starts_with("Comparison"), Group,
                     log2FC = `AVG Log2 Ratio`, pvalue = Pvalue, qvalue = Qvalue) %>%
-      dplyr::filter(!grepl("pool", tolower(comparison))) %>%
+      dplyr::filter(!grepl("pool", tolower(comparison))) %>% # remove comparisons that contain the word "pool"
       tidyr::pivot_wider(., names_from = comparison, values_from = c(log2FC, pvalue, qvalue))
 
     quant2 = quant_df %>%
