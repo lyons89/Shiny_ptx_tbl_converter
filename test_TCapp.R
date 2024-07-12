@@ -323,9 +323,12 @@ server = function(input, output, session){
   
   conv_Spec = eventReactive(list(input$convert, input$SearchEngine == "Spectronaut"),{
     
+    # report_column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", "ProteinDescriptions","FastaFiles", "FastaHeaders",
+    #                              "NrOfStrippedSequencesIdentified (Experiment-wide)",
+    #                              "CellularComponent", "BiologicalProcess", "MolecularFunction")
+    
     report_column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", "ProteinDescriptions","FastaFiles", "FastaHeaders",
-                                 "NrOfStrippedSequencesIdentified (Experiment-wide)",
-                                 "CellularComponent", "BiologicalProcess", "MolecularFunction")
+                                 "CellularComponent", "BiologicalProcess", "MolecularFunction", "UniquePeptides")
     
     stats_df = spectroStats()
     quant_df = spectroQuant()
@@ -339,6 +342,7 @@ server = function(input, output, session){
     quant2 = quant_df %>%
       dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.NrOfStrippedSequencesIdentified (Experiment-wide)",
                                 "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PG.Quantity")) %>%
+      dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
       dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
       dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
       dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE)),0) %>%
@@ -347,7 +351,6 @@ server = function(input, output, session){
       dplyr::select(., any_of(c(report_column_names_keep[1:10], "SummedQuantity")), # unique peptides column comes from the candidates dataframe
                     starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
       dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
-      dplyr::rename(., "UniquePeptides" = `NrOfStrippedSequencesIdentified(Experiment-wide)`) %>%
       dplyr::arrange(., desc(SummedQuantity)) %>%
       Filter(function(x) !all(is.na(x)), .) # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
 
