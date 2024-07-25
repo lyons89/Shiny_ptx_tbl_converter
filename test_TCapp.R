@@ -108,8 +108,7 @@ ui <- navbarPage("Table Converter",
                                   checkboxGroupInput("SpNPTMsKeep", "Which PTMs do you want to keep:",
                                                      choices = NULL),
                                 ),
-                                h5("Do you want to import the SpN Condition Setup File?"),
-                                radioButtons("AddConditions", "Select yes/no", choices = c("Yes", "No"), selected = "No"),
+                                radioButtons("AddConditions", "Import SpN condition setup FIle: yes/no", choices = c("Yes", "No"), selected = "No"),
                                 conditionalPanel(
                                   condition = "input.AddConditions == 'Yes'",
                                   fileInput("SpectroConditions", "Select a Condition file:",
@@ -124,7 +123,7 @@ ui <- navbarPage("Table Converter",
                                 numericInput("statsValue", "stats value to filter by:", value = "0.05")
                               ),
                               conditionalPanel(
-                                h3("Perseus"),
+                                h3("MQ-Perseus"),
                                 condition = "input.SearchEngine == 'MQ-Perseus'", # can this have 2 options
                                 fileInput("perseusUnimputedFile", "Select the UNIMPUTED Perseus txt file:",
                                           multiple = FALSE,
@@ -206,7 +205,7 @@ server = function(input, output, session){
     
     req(input$SpectroConditions)
     #file = read.delim(input$SpectroQuantFile$datapath, sep = "\t", check.names = FALSE)
-    file = vroom(input$SpectroQuantFile$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 1)
+    file = vroom(input$SpectroConditions$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 1)
     return(file)
     
   })
@@ -348,10 +347,6 @@ server = function(input, output, session){
   
   conv_Spec = eventReactive(list(input$convert, input$SearchEngine == "Spectronaut"),{
     
-    # report_column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", "ProteinDescriptions","FastaFiles", "FastaHeaders",
-    #                              "NrOfStrippedSequencesIdentified (Experiment-wide)",
-    #                              "CellularComponent", "BiologicalProcess", "MolecularFunction")
-    
     stats_df = spectroStats()
     quant_df = spectroQuant()
 
@@ -433,6 +428,18 @@ server = function(input, output, session){
         dplyr::arrange(., desc(SummedQuantity))
     }  
     
+    # change the order of the p-values or q-values based on which was filtered on
+    if(input$statsFilter == "pvalue"){
+      quant2 = quant2 %>%
+        dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")),
+                      starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), matches("[PG|PTM].Quantity"))
+    }
+    if(input$statsFilter == "qvalue"){
+
+        quant2 = quant2 %>%
+          dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), 
+                        starts_with("log2FC"), starts_with("qvalue"), starts_with("pvalue"), matches("[PG|PTM].Quantity"))
+    }
     
     # if condition file was added, rename the quant column to match
     # for some reason this code works when run on its own but not when run within Shiny??
@@ -440,25 +447,42 @@ server = function(input, output, session){
       
       cond_df = spectroCond()
       
-      var_names = cond_df %>%
-        dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
-        dplyr::mutate(num = seq(1:nrow(.))) %>%
-        dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>%
-        dplyr::mutate(samp_names = paste0("Log2_", Condition, "_", Replicate, "_Quantity")) %>%
-        dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
-        tibble::deframe()
-
+      if(input$SpectroDataType == "Protein"){
+        
+        var_names = cond_df %>%
+          dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
+          dplyr::mutate(num = seq(1:nrow(.))) %>%
+          dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>%
+          dplyr::mutate(samp_names = paste0("Log2_", Condition, "_", Replicate, "_Quantity")) %>%
+          dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+          tibble::deframe()
+        
+      }
+      
+      if(input$SpectroDataType == "PTM"){
+        
+        var_names = cond_df %>%
+          dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
+          dplyr::mutate(num = seq(1:nrow(.))) %>%
+          dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PTM.Quantity")) %>%
+          dplyr::mutate(samp_names = paste0("Log2_", Condition, "_", Replicate, "_Quantity")) %>%
+          dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+          tibble::deframe()
+        
+      }
+      
       quant2 = quant2 %>%
         dplyr::rename(!!!var_names)
       
     }
     
-    # removes any comparisons that have "pool" in them
+    # removes any comparisons that weren't choosen
     stats_rmPool = stats_df %>%
       dplyr::filter(!grepl("pool", tolower(`Comparison (group1/group2)`))) %>%
       dplyr::filter(., `Comparison (group1/group2)` %in% input$SpNcomparisons)
     
     # creates the comparison tabs by filtering on either p-value or q-value
+    # removed the log2FC filter forthe separate tabs
     ind_comps = lapply(gsub("\\s+", "", unique(stats_rmPool$`Comparison (group1/group2)`)), function(x){
       
       int = quant2 %>%
@@ -470,26 +494,6 @@ server = function(input, output, session){
     
     lst = c(list(quant2), ind_comps)
     names(lst) = spectroSheetNames()
-    
-    # change the order of the p-values or q-values based on which was filtered on
-    if(input$statsFilter == "pvalue"){
-      lst = lapply(lst, function(x){
-        
-        tmp = x %>%
-          dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")),
-                        starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), matches("[PG|PTM].Quantity"))
-      
-        })
-    }
-    if(input$statsFilter == "qvalue"){
-      lst = lapply(lst, function(x){
-        
-        tmp = x %>%
-          dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), 
-                        starts_with("log2FC"), starts_with("qvalue"), starts_with("pvalue"), matches("[PG|PTM].Quantity"))
-      
-        })
-    }
     
     return(lst) 
   })
