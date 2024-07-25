@@ -77,7 +77,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("MQ-Perseus", "Byos", "Spectronaut")),
+                                           choices = c("Spectronaut", "Byos", "MQ-Perseus")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -103,6 +103,11 @@ ui <- navbarPage("Table Converter",
                                           multiple = FALSE,
                                           accept = c(".xls", ".tsv")),
                                 radioButtons("SpectroDataType", "Data Type:", choices = c("Protein", "PTM"), selected = "Protein"),
+                                conditionalPanel(
+                                  condition = "input.SpectroDataType == 'PTM'",
+                                  checkboxGroupInput("SpNPTMsKeep", "Which PTMs do you want to keep:",
+                                                     choices = NULL),
+                                ),
                                 h5("Do you want to import the SpN Condition Setup File?"),
                                 radioButtons("AddConditions", "Select yes/no", choices = c("Yes", "No"), selected = "No"),
                                 conditionalPanel(
@@ -260,6 +265,13 @@ server = function(input, output, session){
   })
   
   
+  observeEvent(spectroQuant(), {
+    
+    updateCheckboxGroupInput(session, "SpNPTMsKeep", choices = unique(spectroQuant()$`PTM.ModificationTitle`))
+    
+  })
+  
+  
   finalSheetnames = reactive({
     
     switch(input$SearchEngine,
@@ -395,6 +407,7 @@ server = function(input, output, session){
         dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), # unique peptides column comes from the candidates dataframe
                       starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PTM.Quantity")) %>%
         dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
+        dplyr::filter(., ModificationTitle %in% input$SpNPTMsKeep) %>%
         dplyr::arrange(., desc(SummedQuantity)) %>%
         Filter(function(x) !all(is.na(x)), .) # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
       
