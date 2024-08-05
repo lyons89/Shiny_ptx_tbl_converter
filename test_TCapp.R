@@ -43,9 +43,8 @@ APMS_MQ = function(df){
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Potential contaminant", "Peptides",  
                               "Razor + unique peptides", "Unique peptides", "Sequence coverage [%]")), 
                   contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), starts_with("MS/MS count")) %>%
-    dplyr::mutate(across(.cols = starts_with("LFQ intensity"), ~round(.x, 2)),
-           across(.cols = contains("Difference"), ~round(.x, 2)),
-           across(.cols = contains("p-value"), ~round(.x, 8))) %>%
+    dplyr::mutate(across(.cols = starts_with("LFQ intensity"), ~round(.x, 4)),
+           across(.cols = contains("Difference"), ~round(.x, 4))) %>%
     dplyr::mutate("Summed LFQ Intensity" = round(rowSums(2^across(.cols = starts_with("LFQ intensity")), na.rm=TRUE)), 0) %>%
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Gene names", "Gene name", "Fasta headers", "Razor + unique peptides", "Potential contaminant")),
                   contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), "Peptides",
@@ -120,7 +119,7 @@ ui <- navbarPage("Table Converter",
                                 radioButtons("transformSpectro", "How do you want the sample quantity values",
                                              choices = c("non-transformed", "Log2", "Both"), selected = "Log2"),
                                 radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
-                                numericInput("statsValue", "stats value to filter by:", value = "0.05")
+                                #numericInput("statsValue", "stats value to filter by:", value = "0.05")
                               ),
                               conditionalPanel(
                                 h3("MQ-Perseus"),
@@ -487,7 +486,7 @@ server = function(input, output, session){
       
       int = quant2 %>%
         #dplyr::filter(., !!as.symbol(paste0("log2FC_",x)) > 0.6 | !!as.symbol(paste0("log2FC_", x)) < -0.6) %>%
-        dplyr::filter(., !!as.symbol(paste0(input$statsFilter, "_", x)) < input$statsValue) %>%
+        dplyr::filter(., !!as.symbol(paste0(input$statsFilter, "_", x)) < 0.05) %>%
         dplyr::arrange(., desc(!!as.symbol(paste0("log2FC_", x))))
       
     })
