@@ -4,7 +4,11 @@
 # library(openxlsx)
 # library(DT)
 
-library(data.table)
+if(!require(markdown)){
+  install.packages("markdown")
+  library(markdown)
+}
+
 if(!require(shiny)){
   install.packages("shiny")
   library(shiny)
@@ -258,7 +262,7 @@ server = function(input, output, session){
   
   observeEvent(spectroStats(), {
     
-    updateCheckboxGroupInput(session, "SpNcomparisons", choices = unique(spectroStats()$`Comparison (group1/group2)`))
+    updateCheckboxGroupInput(session, "SpNcomparisons", choices = sort(unique(spectroStats()$`Comparison (group1/group2)`)))
     
   })
   
@@ -487,6 +491,7 @@ server = function(input, output, session){
       int = quant2 %>%
         #dplyr::filter(., !!as.symbol(paste0("log2FC_",x)) > 0.6 | !!as.symbol(paste0("log2FC_", x)) < -0.6) %>%
         dplyr::filter(., !!as.symbol(paste0(input$statsFilter, "_", x)) < 0.05) %>%
+        dplyr::filter(., UniquePeptides > 1) %>% # added this filter so that we keep these in the proteins tab but not in the comp. tabs
         dplyr::arrange(., desc(!!as.symbol(paste0("log2FC_", x))))
       
     })
