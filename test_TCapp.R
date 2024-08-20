@@ -4,6 +4,11 @@
 # library(openxlsx)
 # library(DT)
 
+if(!require(markdown)){
+  install.packages("markdown")
+  library(markdown)
+}
+
 if(!require(shiny)){
   install.packages("shiny")
   library(shiny)
@@ -42,9 +47,8 @@ APMS_MQ = function(df){
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Potential contaminant", "Peptides",  
                               "Razor + unique peptides", "Unique peptides", "Sequence coverage [%]")), 
                   contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), starts_with("MS/MS count")) %>%
-    dplyr::mutate(across(.cols = starts_with("LFQ intensity"), ~round(.x, 2)),
-           across(.cols = contains("Difference"), ~round(.x, 2)),
-           across(.cols = contains("p-value"), ~round(.x, 8))) %>%
+    dplyr::mutate(across(.cols = starts_with("LFQ intensity"), ~round(.x, 4)),
+           across(.cols = contains("Difference"), ~round(.x, 4))) %>%
     dplyr::mutate("Summed LFQ Intensity" = round(rowSums(2^across(.cols = starts_with("LFQ intensity")), na.rm=TRUE)), 0) %>%
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Gene names", "Gene name", "Fasta headers", "Razor + unique peptides", "Potential contaminant")),
                   contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), "Peptides",
@@ -76,7 +80,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("MQ-Perseus", "PD-Phos", "Byos", "Spectronaut")),
+                                           choices = c("Spectronaut", "Byos", "MQ-Perseus")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -95,35 +99,39 @@ ui <- navbarPage("Table Converter",
                               conditionalPanel(
                                 h3("Spectronaut"),
                                 condition = "input.SearchEngine == 'Spectronaut'",
-                                fileInput("SpectroStatsFile", "Choose a Candidate xls stats file:",
+                                fileInput("SpectroStatsFile", "Select a Candidate Stats file:",
                                           multiple = FALSE,
                                           accept = c(".xls", ".tsv")), 
-                                fileInput("SpectroQuantFile", "Choose a Report xls quant file:",
+                                fileInput("SpectroQuantFile", "Select a Report quant file:",
                                           multiple = FALSE,
                                           accept = c(".xls", ".tsv")),
+                                radioButtons("SpectroDataType", "Data Type:", choices = c("Protein", "PTM"), selected = "Protein"),
+                                conditionalPanel(
+                                  condition = "input.SpectroDataType == 'PTM'",
+                                  checkboxGroupInput("SpNPTMsKeep", "Which PTMs do you want to keep:",
+                                                     choices = NULL),
+                                ),
+                                radioButtons("AddConditions", "Import SpN condition setup FIle: yes/no", choices = c("Yes", "No"), selected = "No"),
+                                conditionalPanel(
+                                  condition = "input.AddConditions == 'Yes'",
+                                  fileInput("SpectroConditions", "Select a Condition file:",
+                                            multiple = FALSE,
+                                            accept = c(".tsv"))
+                                ),
+                                checkboxGroupInput("SpNcomparisons", "Choose which comparisons to keep:",
+                                                   choices = NULL),
                                 radioButtons("transformSpectro", "How do you want the sample quantity values",
-                                             choices = c("non-transformed", "Log2", "Both")),
+                                             choices = c("non-transformed", "Log2", "Both"), selected = "Log2"),
                                 radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
-                                numericInput("statsValue", "stats value to filter by", value = "0.05")
-                                #selectInput("tab2", "Transformed Tab", choices = NULL),
+                                #numericInput("statsValue", "stats value to filter by:", value = "0.05")
                               ),
                               conditionalPanel(
-                                h3("Perseus"),
+                                h3("MQ-Perseus"),
                                 condition = "input.SearchEngine == 'MQ-Perseus'", # can this have 2 options
                                 fileInput("perseusUnimputedFile", "Select the UNIMPUTED Perseus txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
                                 fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
-                                          multiple = FALSE,
-                                          accept = c(".txt")),
-                                h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
-                                radioButtons("PerseusFilterOption", "Choose method to filter data by:",
-                                             choices = (c("pval", "pval & log2FC")))
-                              ),
-                              conditionalPanel(
-                                h3("Proteome Discoverer 3.1"),
-                                condition = "input.SearchEngine == 'PD-Phos'",
-                                fileInput("PDpeptideIsoform", "Select the Peptide Isofrom txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
                                 h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
@@ -181,6 +189,7 @@ server = function(input, output, session){
     
     req(input$SpectroStatsFile)
     #file = read.delim(input$SpectroStatsFile$datapath, sep = "\t", check.names = FALSE)
+    #file = fread(input$SpectroStatsFile$datapath, sep = "\t", na.strings = c("NA", "NaN"), nThread = 2)
     file = vroom(input$SpectroStatsFile$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 2)
     return(file)
     
@@ -190,21 +199,32 @@ server = function(input, output, session){
     
     req(input$SpectroQuantFile)
     #file = read.delim(input$SpectroQuantFile$datapath, sep = "\t", check.names = FALSE)
-    file = vroom(input$SpectroQuantFile$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 2)
+    file = vroom(input$SpectroQuantFile$datapath, delim = "\t", na = c("NA", "NaN", "Filtered"), show_col_types = FALSE, progress = FALSE, num_threads = 2)
     return(file)
     
   })
+  
+  spectroCond = reactive({
+    
+    req(input$SpectroConditions)
+    #file = read.delim(input$SpectroQuantFile$datapath, sep = "\t", check.names = FALSE)
+    file = vroom(input$SpectroConditions$datapath, delim = "\t", na = c("NA", "NaN"), show_col_types = FALSE, progress = FALSE, num_threads = 1)
+    return(file)
+    
+  })
+  
   
   spectroSheetNames = reactive({
     
     df = spectroStats()
     
     rm_pool = df %>%
-      filter(!grepl("pool", tolower(`Comparison (group1/group2)`)))
+      #filter(!grepl("pool", tolower(`Comparison (group1/group2)`))) %>%
+      dplyr::filter(., `Comparison (group1/group2)` %in% input$SpNcomparisons)
       
     sheetnames = unique(rm_pool$`Comparison (group1/group2)`) %>%
       gsub(" ", "", .) %>%
-      gsub("/", "-", .)
+      gsub("/", " V ", .)
     
     names = c("Proteins", sheetnames)
     
@@ -240,11 +260,24 @@ server = function(input, output, session){
   })
   
   
+  observeEvent(spectroStats(), {
+    
+    updateCheckboxGroupInput(session, "SpNcomparisons", choices = sort(unique(spectroStats()$`Comparison (group1/group2)`)))
+    
+  })
+  
+  
+  observeEvent(spectroQuant(), {
+    
+    updateCheckboxGroupInput(session, "SpNPTMsKeep", choices = unique(spectroQuant()$`PTM.ModificationTitle`))
+    
+  })
+  
+  
   finalSheetnames = reactive({
     
     switch(input$SearchEngine,
            "MQ-Perseus" = perseusSheetNames(), 
-           "PD-Perseus" =  perseusSheetNames(),
            "Byos" = ByosSheetNames(),
            "Spectronaut" = spectroSheetNames())
     
@@ -317,62 +350,148 @@ server = function(input, output, session){
   
   conv_Spec = eventReactive(list(input$convert, input$SearchEngine == "Spectronaut"),{
     
-    report_column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", "ProteinDescriptions","FastaFiles", "FastaHeaders",
-                                 "NrOfStrippedSequencesIdentified (Experiment-wide)",
-                                 "CellularComponent", "BiologicalProcess", "MolecularFunction")
-    
     stats_df = spectroStats()
     quant_df = spectroQuant()
-    
+
     stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
+      dplyr::filter(., if_any(matches("Valid"), ~Valid == TRUE)) %>% # if the valid column exists, filter it for only true values
       dplyr::select(., comparison = starts_with("Comparison"), Group,
                     log2FC = `AVG Log2 Ratio`, pvalue = Pvalue, qvalue = Qvalue) %>%
-      dplyr::filter(!grepl("pool", tolower(comparison))) %>%
+      dplyr::filter(., comparison %in% input$SpNcomparisons) %>%
+      #dplyr::filter(!grepl("pool", tolower(comparison))) %>% # remove comparisons that contain the word "pool", should not need now with SpNcomparisons
       tidyr::pivot_wider(., names_from = comparison, values_from = c(log2FC, pvalue, qvalue))
 
-    quant2 = quant_df %>%
-      dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.NrOfStrippedSequencesIdentified (Experiment-wide)",
-                                "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PG.Quantity")) %>%
-      dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
-      dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
-      dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE)),0) %>%
-      dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
-      dplyr::left_join(., stats2, by = c("ProteinGroups" = "Group")) %>%
-      dplyr::select(., any_of(c(report_column_names_keep[1:10], "SummedQuantity")), # unique peptides column comes from the candidates dataframe
-                    starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
-      dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
-      dplyr::rename(., "UniquePeptides" = `NrOfStrippedSequencesIdentified(Experiment-wide)`) %>%
-      dplyr::arrange(., desc(SummedQuantity))
-
+    
+    if(input$SpectroDataType == "Protein"){
+      
+      report_column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", "ProteinDescriptions","FastaFiles", "FastaHeaders",
+                                   "CellularComponent", "BiologicalProcess", "MolecularFunction", "UniquePeptides")
+      
+      
+      quant2 = quant_df %>%
+        dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.NrOfStrippedSequencesIdentified (Experiment-wide)",
+                                  "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PG.Quantity")) %>%
+        dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
+        dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
+        dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
+        dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE)),0) %>%
+        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
+        dplyr::left_join(., stats2, by = c("ProteinGroups" = "Group")) %>%
+        dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), # unique peptides column comes from the candidates dataframe
+                      starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
+        dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
+        dplyr::arrange(., desc(SummedQuantity)) %>%
+        Filter(function(x) !all(is.na(x)), .) # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
+      
+    }
+    
+    if(input$SpectroDataType == "PTM"){
+      
+      report_column_names_keep = c("ProteinId", "ProteinNames", "Genes", "ProteinDescriptions","FastaFiles", "FastaHeaders",
+                                   "CellularComponent", "BiologicalProcess", "MolecularFunction", "UniquePeptides",
+                                   "CollapseKey", "Multiplicity", "ModificationTitle", "SiteAA", "SiteLocation", "FlankingRegion")
+      
+      
+      quant2 = quant_df %>%
+        dplyr::select(., any_of(c("PTM.ProteinId", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.FastaHeaders", 
+                                  "PTM.CollapseKey", "PTM.Multiplicity", "PTM.ModificationTitle", "PTM.SiteAA", "PTM.SiteLocation", "PTM.FlankingRegion",
+                                  "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PTM.Quantity")) %>%
+        #dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
+        dplyr::rename_with(., .cols = !ends_with("PTM.Quantity"), ~gsub("^.*\\.", "", .x)) %>%   # removes everything before . in column names, except quant values   
+        dplyr::select(., any_of(report_column_names_keep), ends_with("PTM.Quantity")) %>%
+        dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PTM.Quantity")), na.rm=TRUE)),0) %>%
+        dplyr::mutate(across(.cols = ends_with("PTM.Quantity"), ~round(.x, 4))) %>%
+        dplyr::left_join(., stats2, by = c("CollapseKey" = "Group")) %>%
+        dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), # unique peptides column comes from the candidates dataframe
+                      starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PTM.Quantity")) %>%
+        dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
+        dplyr::filter(., ModificationTitle %in% input$SpNPTMsKeep) %>%
+        dplyr::arrange(., desc(SummedQuantity)) %>%
+        Filter(function(x) !all(is.na(x)), .) # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
+      
+    }
+    
+    
     if(input$transformSpectro == "Log2"){
       
       quant2 = quant2 %>%
-        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~log2(.x), .names = "log2_{.col}"), .keep = "unused") %>%
-        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
+        dplyr::mutate(across(.cols = matches("[PG|PTM].Quantity"), ~log2(.x), .names = "log2_{.col}"), .keep = "unused") %>%
+        dplyr::mutate(across(.cols = matches("[PG|PTM].Quantity"), ~round(.x, 4))) %>%
         dplyr::arrange(., desc(SummedQuantity))
        
     }
     if(input$transformSpectro == "Both"){
       
-      cols_to_keep = names(quant2)[!grepl("PG.Quantity", names(quant2))]
+      cols_to_keep = names(quant2)[!grepl("[PG|PTM].Quantity", names(quant2))]
       
       quant2 = quant2 %>%
-        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~log2(.x), .names = "log2_{.col}")) %>%
-        dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
+        dplyr::mutate(across(.cols = matches("[PG|PTM].Quantity"), ~log2(.x), .names = "log2_{.col}")) %>%
+        dplyr::mutate(across(.cols = matches("[PG|PTM].Quantity"), ~round(.x, 4))) %>%
         dplyr::select(., any_of(cols_to_keep), starts_with("log2_"), starts_with("[")) %>%
         dplyr::arrange(., desc(SummedQuantity))
-        
-      
     }  
     
-    stats_rmPool = stats_df %>%
-      dplyr::filter(!grepl("pool", tolower(`Comparison (group1/group2)`)))
+    # change the order of the p-values or q-values based on which was filtered on
+    if(input$statsFilter == "pvalue"){
+      quant2 = quant2 %>%
+        dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")),
+                      starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), matches("[PG|PTM].Quantity"))
+    }
+    if(input$statsFilter == "qvalue"){
+
+        quant2 = quant2 %>%
+          dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), 
+                        starts_with("log2FC"), starts_with("qvalue"), starts_with("pvalue"), matches("[PG|PTM].Quantity"))
+    }
     
+    # if condition file was added, rename the quant column to match
+    # for some reason this code works when run on its own but not when run within Shiny??
+    if(input$AddConditions == "Yes"){
+      
+      cond_df = spectroCond()
+      
+      if(input$SpectroDataType == "Protein"){
+        
+        var_names = cond_df %>%
+          dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
+          dplyr::mutate(num = seq(1:nrow(.))) %>%
+          dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>%
+          dplyr::mutate(samp_names = paste0("Log2_", Condition, "_", Replicate, "_Quantity")) %>%
+          dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+          tibble::deframe()
+        
+      }
+      
+      if(input$SpectroDataType == "PTM"){
+        
+        var_names = cond_df %>%
+          dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
+          dplyr::mutate(num = seq(1:nrow(.))) %>%
+          dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PTM.Quantity")) %>%
+          dplyr::mutate(samp_names = paste0("Log2_", Condition, "_", Replicate, "_Quantity")) %>%
+          dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+          tibble::deframe()
+        
+      }
+      
+      quant2 = quant2 %>%
+        dplyr::rename(!!!var_names)
+      
+    }
+    
+    # removes any comparisons that weren't choosen
+    stats_rmPool = stats_df %>%
+      dplyr::filter(!grepl("pool", tolower(`Comparison (group1/group2)`))) %>%
+      dplyr::filter(., `Comparison (group1/group2)` %in% input$SpNcomparisons)
+    
+    # creates the comparison tabs by filtering on either p-value or q-value
+    # removed the log2FC filter forthe separate tabs
     ind_comps = lapply(gsub("\\s+", "", unique(stats_rmPool$`Comparison (group1/group2)`)), function(x){
       
       int = quant2 %>%
         #dplyr::filter(., !!as.symbol(paste0("log2FC_",x)) > 0.6 | !!as.symbol(paste0("log2FC_", x)) < -0.6) %>%
-        dplyr::filter(., !!as.symbol(paste0(input$statsFilter, "_", x)) < input$statsValue) %>%
+        dplyr::filter(., !!as.symbol(paste0(input$statsFilter, "_", x)) < 0.05) %>%
+        dplyr::filter(., UniquePeptides > 1) %>% # added this filter so that we keep these in the proteins tab but not in the comp. tabs
         dplyr::arrange(., desc(!!as.symbol(paste0("log2FC_", x))))
       
     })
