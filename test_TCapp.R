@@ -1,8 +1,4 @@
 # Load Packages ---
-# library(shiny)
-# library(tidyverse)
-# library(openxlsx)
-# library(DT)
 
 if(!require(markdown)){
   install.packages("markdown")
@@ -123,7 +119,6 @@ ui <- navbarPage("Table Converter",
                                 radioButtons("transformSpectro", "How do you want the sample quantity values",
                                              choices = c("non-transformed", "Log2", "Both"), selected = "Log2"),
                                 radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
-                                #numericInput("statsValue", "stats value to filter by:", value = "0.05")
                               ),
                               conditionalPanel(
                                 h3("MQ-Perseus"),
@@ -226,7 +221,7 @@ server = function(input, output, session){
       gsub(" ", "", .) %>%
       gsub("/", " V ", .)
     
-    names = c("Proteins", sheetnames)
+    names = c("summary_stats", "Proteins", sheetnames)
     
   })
   
@@ -266,7 +261,7 @@ server = function(input, output, session){
     
   })
   
-  
+  # make this only observe if data type == "PTM"
   observeEvent(spectroQuant(), {
     
     updateCheckboxGroupInput(session, "SpNPTMsKeep", choices = unique(spectroQuant()$`PTM.ModificationTitle`))
@@ -380,6 +375,8 @@ server = function(input, output, session){
         dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), # unique peptides column comes from the candidates dataframe
                       starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
         dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
+        dplyr::mutate("Contaminant" = grepl("contaminants", FastaFiles)) %>%
+        dplyr::relocate(., "Contaminant", .after = "FastaFiles") %>%
         dplyr::arrange(., desc(SummedQuantity)) %>%
         Filter(function(x) !all(is.na(x)), .) # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
       
@@ -433,17 +430,18 @@ server = function(input, output, session){
     
     # change the order of the p-values or q-values based on which was filtered on
     if(input$statsFilter == "pvalue"){
+      
       quant2 = quant2 %>%
-        dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")),
+        dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity", "Contaminant")),
                       starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), matches("[PG|PTM].Quantity"))
     }
     if(input$statsFilter == "qvalue"){
 
-        quant2 = quant2 %>%
-          dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), 
-                        starts_with("log2FC"), starts_with("qvalue"), starts_with("pvalue"), matches("[PG|PTM].Quantity"))
+      quant2 = quant2 %>%
+        dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity", "Contaminant")),
+                      starts_with("log2FC"), starts_with("qvalue"), starts_with("pvalue"), matches("[PG|PTM].Quantity"))
     }
-    
+
     # if condition file was added, rename the quant column to match
     # for some reason this code works when run on its own but not when run within Shiny??
     if(input$AddConditions == "Yes"){
@@ -452,14 +450,39 @@ server = function(input, output, session){
       
       if(input$SpectroDataType == "Protein"){
         
-        var_names = cond_df %>%
-          dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
-          dplyr::mutate(num = seq(1:nrow(.))) %>%
-          dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>%
-          dplyr::mutate(samp_names = paste0("Log2_", Condition, "_", Replicate, "_Quantity")) %>%
-          dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
-          tibble::deframe()
         
+        if(input$transformSpectro == "Log2"){
+          
+          var_names = cond_df %>%
+            dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
+            dplyr::mutate(num = seq(1:nrow(.))) %>%
+            dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>%
+            dplyr::mutate(samp_names = paste0("Log2_", Condition, "_", Replicate, "_Quantity")) %>%
+            dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+            tibble::deframe()
+          
+        }
+        if(input$transformSpectro == "Both"){
+          
+          new_log_names = cond_df %>%
+            dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
+            dplyr::mutate(num = seq(1:nrow(.))) %>%
+            dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>%
+            dplyr::mutate(samp_names = paste0("Log2_", Condition, "_", Replicate, "_Quantity")) %>%
+            dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+            tibble::deframe()
+          
+          new_nonlog_names = cond_df %>%
+            dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
+            dplyr::mutate(num = seq(1:nrow(.))) %>%
+            dplyr::mutate(current_names = paste0("[", num, "]", `Run Label`, ".PG.Quantity")) %>%
+            dplyr::mutate(samp_names = paste0(Condition, "_", Replicate, "_Quantity")) %>%
+            dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+            tibble::deframe()
+          
+          var_names = c(new_log_names, new_nonlog_names)
+          
+        }
       }
       
       if(input$SpectroDataType == "PTM"){
@@ -479,6 +502,30 @@ server = function(input, output, session){
       
     }
     
+    # calcualte CVs
+    
+    cv = function(df){
+      
+      int = df %>%
+        dplyr::select(., ProteinGroups, starts_with("Log2") & ends_with("Quantity")) %>%
+        tidyr::pivot_longer(., cols = ends_with("Quantity"), names_to = "BioReplicate") %>%
+        dplyr::mutate(Condition = gsub("Log2_|_Quantity", "", BioReplicate)) %>%
+        dplyr::mutate(Condition = sub("_[^_]+$", "", Condition)) %>%
+        dplyr::mutate(unlog_abun = 2^value) %>%
+        dplyr::group_by(Condition, ProteinGroups) %>%
+        dplyr::reframe(CV = round(sd(unlog_abun, na.rm=TRUE) / mean(unlog_abun, na.rm=TRUE) * 100, 2)) %>%
+        tidyr::pivot_wider(names_from = Condition, values_from = CV, names_prefix = "CV_") %>%
+        dplyr::ungroup()
+      
+      return(int)
+    }
+    
+    quant2_cv = cv(quant2)
+    
+    quant2 = quant2 %>%
+      dplyr::left_join(., quant2_cv, by = "ProteinGroups") %>%
+      dplyr::relocate(., starts_with("CV_"), .after = "SummedQuantity")
+    
     # removes any comparisons that weren't choosen
     stats_rmPool = stats_df %>%
       dplyr::filter(!grepl("pool", tolower(`Comparison (group1/group2)`))) %>%
@@ -496,7 +543,64 @@ server = function(input, output, session){
       
     })
     
-    lst = c(list(quant2), ind_comps)
+    summary_stats = function(df){
+      
+      proteins = nrow(df)
+      contams = sum(df$Contaminant)
+      
+      single_hits = nrow(filter(df, UniquePeptides == 1))
+      med_cv = apply(quant2_cv[2:length(quant2_cv)], 2, function(x) median(x, na.rm=TRUE))
+      
+      comparisons = gsub("log2FC_", "", grep("log2FC", names(df), value = TRUE))
+
+      comp_stats = function(df, comp){
+        
+        p_filt_pos = df %>%
+          dplyr::select(., contains(comp)) %>%
+          dplyr::filter(., !!sym(paste0("log2FC_", comp)) > 0.6 & !!sym(paste0("pvalue_", comp)) < 0.05) %>%
+          nrow()
+        
+        p_filt_neg = df %>%
+          dplyr::select(., contains(comp)) %>%
+          dplyr::filter(., !!sym(paste0("log2FC_", comp)) < -0.6 & !!sym(paste0("pvalue_", comp)) < 0.05) %>%
+          nrow()
+        
+        q_filt_pos = df %>%
+          dplyr::select(., contains(comp)) %>%
+          dplyr::filter(., !!sym(paste0("log2FC_", comp)) > 0.6 & !!sym(paste0("qvalue_", comp)) < 0.05) %>%
+          nrow()
+        
+        q_filt_neg = df %>%
+          dplyr::select(., contains(comp)) %>%
+          dplyr::filter(., !!sym(paste0("log2FC_", comp)) < -0.6 & !!sym(paste0("qvalue_", comp)) < 0.05) %>%
+          nrow()
+        
+        
+        tot = data.frame(p_filt_pos, p_filt_neg, q_filt_pos, q_filt_neg)
+        colnames(tot) = paste0(c("pvalue_greater","pvalue_less",  "qvalue_greater", "qvalue_less"), comp)
+        
+        return(tot)
+        
+      }
+       
+      comp_lst = lapply(comparisons, function(x) comp_stats(df, x))
+      
+      final = t(data.frame("total_proteins" = proteins,
+                              "total_contams" = contams,
+                              "single_hits" = single_hits,
+                              "medium" = t(med_cv),
+                              comp_lst))
+      
+      final = data.frame(columns = rownames(final),
+                          "summary stats" = final[,1])
+      
+
+      return(final)
+    }
+    
+    summary = summary_stats(quant2)
+    
+    lst = c(list(summary), list(quant2), ind_comps)
     names(lst) = spectroSheetNames()
     
     return(lst) 
