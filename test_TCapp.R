@@ -219,7 +219,7 @@ server = function(input, output, session){
       
     sheetnames = unique(rm_pool$`Comparison (group1/group2)`) %>%
       gsub(" ", "", .) %>%
-      gsub("/", " V ", .)
+      gsub("/", " v ", .)
     
     names = c("summary_stats", "Proteins", sheetnames)
     
@@ -376,7 +376,6 @@ server = function(input, output, session){
                       starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
         dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
         dplyr::mutate("Contaminant" = grepl("contaminants", FastaFiles)) %>%
-        dplyr::relocate(., "Contaminant", .after = "FastaFiles") %>%
         dplyr::arrange(., desc(SummedQuantity)) %>%
         Filter(function(x) !all(is.na(x)), .) # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
       
@@ -433,13 +432,17 @@ server = function(input, output, session){
       
       quant2 = quant2 %>%
         dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity", "Contaminant")),
-                      starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), matches("[PG|PTM].Quantity"))
+                      starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), matches("[PG|PTM].Quantity")) %>%
+        dplyr::relocate(., "Contaminant", .after = "FastaFiles")
+        
     }
     if(input$statsFilter == "qvalue"){
 
       quant2 = quant2 %>%
         dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity", "Contaminant")),
-                      starts_with("log2FC"), starts_with("qvalue"), starts_with("pvalue"), matches("[PG|PTM].Quantity"))
+                      starts_with("log2FC"), starts_with("qvalue"), starts_with("pvalue"), matches("[PG|PTM].Quantity")) %>%
+        dplyr::relocate(., "Contaminant", .after = "FastaFiles")
+        
     }
 
     # if condition file was added, rename the quant column to match
@@ -528,7 +531,7 @@ server = function(input, output, session){
     
     # removes any comparisons that weren't choosen
     stats_rmPool = stats_df %>%
-      dplyr::filter(!grepl("pool", tolower(`Comparison (group1/group2)`))) %>%
+      #dplyr::filter(!grepl("pool", tolower(`Comparison (group1/group2)`))) %>%
       dplyr::filter(., `Comparison (group1/group2)` %in% input$SpNcomparisons)
     
     # creates the comparison tabs by filtering on either p-value or q-value
