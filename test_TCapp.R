@@ -117,7 +117,7 @@ ui <- navbarPage("Table Converter",
                                 checkboxGroupInput("SpNcomparisons", "Choose which comparisons to keep:",
                                                    choices = NULL),
                                 radioButtons("transformSpectro", "How do you want the sample quantity values",
-                                             choices = c("non-transformed", "Log2", "Both"), selected = "Log2"),
+                                             choices = c("non-transformed", "Log2", "Both"), selected = "Both"),
                                 radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
                               ),
                               conditionalPanel(
@@ -262,7 +262,7 @@ server = function(input, output, session){
   })
   
   # make this only observe if data type == "PTM"
-  observeEvent(spectroQuant(), {
+  observeEvent(input$SpectroDataType == "PTM",{
     
     updateCheckboxGroupInput(session, "SpNPTMsKeep", choices = unique(spectroQuant()$`PTM.ModificationTitle`))
     
@@ -541,7 +541,6 @@ server = function(input, output, session){
       int = quant2 %>%
         #dplyr::filter(., !!as.symbol(paste0("log2FC_",x)) > 0.6 | !!as.symbol(paste0("log2FC_", x)) < -0.6) %>%
         dplyr::filter(., !!as.symbol(paste0(input$statsFilter, "_", x)) < 0.05) %>%
-        dplyr::filter(., UniquePeptides > 1) %>% # added this filter so that we keep these in the proteins tab but not in the comp. tabs
         dplyr::arrange(., desc(!!as.symbol(paste0("log2FC_", x))))
       
     })
