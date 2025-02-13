@@ -42,12 +42,12 @@ APMS_MQ = function(df){
   df %>%
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Potential contaminant", "Peptides",  
                               "Razor + unique peptides", "Unique peptides", "Sequence coverage [%]")), 
-                  contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), starts_with("MS/MS count")) %>%
+                  contains("Difference"), contains("p-value"), contains("q-value", ignore.case = FALSE), contains("Significant"), starts_with("LFQ intensity"), starts_with("MS/MS count")) %>%
     dplyr::mutate(across(.cols = starts_with("LFQ intensity"), ~round(.x, 4)),
            across(.cols = contains("Difference"), ~round(.x, 4))) %>%
     dplyr::mutate("Summed LFQ Intensity" = round(rowSums(2^across(.cols = starts_with("LFQ intensity")), na.rm=TRUE)), 0) %>%
     dplyr::select(., any_of(c("Majority protein IDs", "Protein names", "Gene names", "Gene name", "Fasta headers", "Razor + unique peptides", "Potential contaminant")),
-                  contains("Difference"), contains("p-value"), contains("Significant"), starts_with("LFQ intensity"), "Peptides",
+                  contains("Difference"), contains("p-value"), contains("q-value"), contains("Significant"), starts_with("LFQ intensity"), "Peptides",
                   "Unique peptides", "Sequence coverage [%]", starts_with("Sequence coverage"), "Summed LFQ Intensity", starts_with("MS/MS count"),
                   -contains("significant", ignore.case=FALSE)) %>%
     dplyr::arrange(.,desc(`Summed LFQ Intensity`))
@@ -67,7 +67,7 @@ import_pers = function(file_loc){
 }
 
 
-options(shiny.maxRequestSize=200*1024^2) # increase server.R limit to 200MB file size
+options(shiny.maxRequestSize=1000*1024^2) # increase server.R limit to 200MB file size
 
 
 ui <- navbarPage("Table Converter",
@@ -76,7 +76,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("Spectronaut", "Byos", "MQ-Perseus")),
+                                           choices = c("Spectronaut", "Byos", "MQ-Perseus", "PD-TMT,add inputFiles")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -129,9 +129,15 @@ ui <- navbarPage("Table Converter",
                                 fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
-                                h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
-                                radioButtons("PerseusFilterOption", "Choose method to filter data by:",
-                                             choices = (c("pval", "pval & log2FC")))
+                                # h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
+                                # radioButtons("PerseusFilterOption", "Choose method to filter data by:",
+                                #              choices = (c("pval", "pval & log2FC")))
+                              ),
+                              conditionalPanel(
+                                h3("PD-TMT adding inputFiles column"),
+                                condition = "input.SearchEngine == 'PD-TMT,add inputFiles'",
+                                fileInput("PDtmtPSMS", "select PSMs input file", multiple = FALSE, accept = c(".txt")),
+                                fileInput("PDtmtInputFile", "select the input file", multiple = FALSE, accept = c(".txt"))
                               ),
                               selectInput("tab2", "Select tab to view", choices = NULL),
                               textInput("outputFileName", label = "Export file name:", value = ""),
@@ -179,6 +185,19 @@ server = function(input, output, session){
     
   })
   
+  PDtmtPSMSFile = reactive({
+    req(input$PDtmtPSMS)
+    file = vroom(input$PDtmtPSMS$datapath, num_threads = 8)
+    return(file)
+    
+  })
+  
+  PDtmtInputFile = reactive({
+    req(input$PDtmtInputFile)
+    file = vroom(input$PDtmtInputFile$datapath)
+    return(file)
+    
+  })
   
   spectroStats = reactive({
     
@@ -285,6 +304,27 @@ server = function(input, output, session){
 
   })
   
+  conv_PDtmt = eventReactive(list(input$convert, input$SearchEngine == "PD-TMT,add inputFiles"),{
+    
+    PSMFile = PDtmtPSMSFile()
+    inputFile = PDtmtInputFile()
+    
+    clean_inputFIle = function(df){
+      
+      int = df %>%
+        dplyr::select(., all_of(c("File ID", "File Name"))) %>%
+        dplyr::mutate(., "Spectrum File" = basename(`File Name`)) %>%
+        dplyr::select(., -`File Name`)
+      
+    }
+    
+    clean_input = clean_inputFIle(inputFile)
+    
+    tmp = dplyr::left_join(PSMFile, clean_input, by = "File ID")
+    
+    return(tmp)
+    
+  })
   
   conv_Byos = eventReactive(list(input$convert, input$SearchEngine == "Byos"),{
                       
@@ -525,9 +565,12 @@ server = function(input, output, session){
     
     quant2_cv = cv(quant2)
     
+    # ERROR getting error here, but if i continue it works fine.
     quant2 = quant2 %>%
-      dplyr::left_join(., quant2_cv, by = "ProteinGroups") %>%
-      dplyr::relocate(., starts_with("CV_"), .after = "SummedQuantity")
+      dplyr::left_join(., quant2_cv, by = "ProteinGroups") 
+    
+    quant2 = quant2 %>%
+      dplyr::relocate(grep("CV_", names(quant2_cv), value = T), .after = SummedQuantity)
     
     # removes any comparisons that weren't choosen
     stats_rmPool = stats_df %>%
@@ -620,34 +663,17 @@ server = function(input, output, session){
       log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
       pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
       
-      if(input$PerseusFilterOption == "pval"){
-        
-        filt = map2(log_names, pvalue_names, function(x,y){
-          int = cleaned_imputed %>%
-            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
-            dplyr::arrange(., desc((!!as.symbol(x))))
-        })
-        
-        lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
-        names(lst) = perseusSheetNames()
-        
-        return(lst)
-      }
-      if(input$PerseusFilterOption == "pval & log2FC"){
-        
-        filt = map2(log_names, pvalue_names, function(x,y){
-          int = cleaned_imputed %>%
-            dplyr::filter(., !!as.symbol(x) > 1 | !!as.symbol(y) < -1) %>%
-            dplyr::filter(., !!as.symbol(y) < 0.05) %>% # this method to evaluate "column name" as a variable. first turn into symbol, then !! inject it into expression
-            dplyr::arrange(., desc(!!as.symbol(x)))
-        })
-        
-        lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
-        names(lst) = perseusSheetNames()
-        
-        return(lst)
-      }
+      filt = map2(log_names, pvalue_names, function(x,y){
+        int = cleaned_imputed %>%
+          dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+          dplyr::arrange(., desc((!!as.symbol(x))))
+      })
       
+      lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
+      names(lst) = perseusSheetNames()
+      
+      return(lst)
+
       
       
     }
@@ -658,9 +684,9 @@ server = function(input, output, session){
     
     switch(input$SearchEngine,
            "MQ-Perseus" = conv_Perseus_MQ(), 
-           "PD-Perseus" =  PD,
            "Byos" = conv_Byos(),
-           "Spectronaut" = conv_Spec())
+           "Spectronaut" = conv_Spec(),
+           "PD-TMT,add inputFiles" = conv_PDtmt())
     
   })
   
@@ -673,12 +699,19 @@ server = function(input, output, session){
   
   output$df2 = DT::renderDataTable(DT())
   
-  
+  # here have to add an if statement (?) so that PDtmt can be downloaded as a .txt file.
   output$download = downloadHandler(
     filename = function() {
-      paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_Results.xlsx" )
+      if(input$SearchEngine == "PD-TMT,add inputFiles"){
+        paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_mergedFiles.txt" )
+      } else{
+        paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_Results.xlsx" )
+      }
     },
     content = function(file){
+      if(input$SearchEngine == "PD-TMT,add inputFiles"){
+        vroom::vroom_write(fileout(), file)
+      }
       hs = createStyle(textDecoration = "Bold", wrapText = TRUE)
       write.xlsx(finalOut(), file,
                  sheetName = finalSheetnames(), overwrite = TRUE, headerStyle = hs, keepNA = TRUE)
