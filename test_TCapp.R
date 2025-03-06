@@ -76,7 +76,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("Spectronaut", "Byos", "MQ-Perseus", "PD-TMT,add inputFiles")),
+                                           choices = c("Spectronaut", "Byos", "MQ-Perseus", "PD-TMT")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -135,7 +135,7 @@ ui <- navbarPage("Table Converter",
                               ),
                               conditionalPanel(
                                 h3("PD-TMT adding inputFiles column"),
-                                condition = "input.SearchEngine == 'PD-TMT,add inputFiles'",
+                                condition = "input.SearchEngine == 'PD-TMT'",
                                 fileInput("PDtmtPSMS", "select PSMs input file", multiple = FALSE, accept = c(".txt")),
                                 fileInput("PDtmtInputFile", "select the input file", multiple = FALSE, accept = c(".txt"))
                               ),
@@ -304,27 +304,27 @@ server = function(input, output, session){
 
   })
   
-  conv_PDtmt = eventReactive(list(input$convert, input$SearchEngine == "PD-TMT,add inputFiles"),{
-    
-    PSMFile = PDtmtPSMSFile()
-    inputFile = PDtmtInputFile()
-    
-    clean_inputFIle = function(df){
-      
-      int = df %>%
-        dplyr::select(., all_of(c("File ID", "File Name"))) %>%
-        dplyr::mutate(., "Spectrum File" = basename(`File Name`)) %>%
-        dplyr::select(., -`File Name`)
-      
-    }
-    
-    clean_input = clean_inputFIle(inputFile)
-    
-    tmp = dplyr::left_join(PSMFile, clean_input, by = "File ID")
-    
-    return(tmp)
-    
-  })
+  # conv_PDtmt = eventReactive(list(input$convert, input$SearchEngine == "PD-TMT"),{
+  #   
+  #   PSMFile = PDtmtPSMSFile()
+  #   inputFile = PDtmtInputFile()
+  #   
+  #   clean_inputFIle = function(df){
+  #     
+  #     int = df %>%
+  #       dplyr::select(., all_of(c("File ID", "File Name"))) %>%
+  #       dplyr::mutate(., "Spectrum File" = basename(`File Name`)) %>%
+  #       dplyr::select(., -`File Name`)
+  #     
+  #   }
+  #   
+  #   clean_input = clean_inputFIle(inputFile)
+  #   
+  #   tmp = dplyr::left_join(PSMFile, clean_input, by = "File ID")
+  #   
+  #   return(tmp)
+  #   
+  # })
   
   conv_Byos = eventReactive(list(input$convert, input$SearchEngine == "Byos"),{
                       
@@ -673,9 +673,6 @@ server = function(input, output, session){
       names(lst) = perseusSheetNames()
       
       return(lst)
-
-      
-      
     }
     
   })
@@ -685,8 +682,8 @@ server = function(input, output, session){
     switch(input$SearchEngine,
            "MQ-Perseus" = conv_Perseus_MQ(), 
            "Byos" = conv_Byos(),
-           "Spectronaut" = conv_Spec(),
-           "PD-TMT,add inputFiles" = conv_PDtmt())
+           "Spectronaut" = conv_Spec())
+           #"PD-TMT" = conv_PDtmt())
     
   })
   
@@ -700,18 +697,31 @@ server = function(input, output, session){
   output$df2 = DT::renderDataTable(DT())
   
   # here have to add an if statement (?) so that PDtmt can be downloaded as a .txt file.
+  # output$download = downloadHandler(
+  #   filename = function() {
+  #     if(input$SearchEngine == "PD-TMT"){
+  #       paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_mergedFiles.txt" )
+  #     } else{
+  #       paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_Results.xlsx" )
+  #     }
+  #   },
+  #   content = function(file){
+  #     if(input$SearchEngine == "PD-TMT"){
+  #       vroom::vroom_write(finalOut(), file)
+  #     }else{
+  #       hs = createStyle(textDecoration = "Bold", wrapText = TRUE)
+  #       write.xlsx(finalOut(), file,
+  #                  sheetName = finalSheetnames(), overwrite = TRUE, headerStyle = hs, keepNA = TRUE)
+  #     }
+  #   }
+  #   
+  # )
+  
   output$download = downloadHandler(
     filename = function() {
-      if(input$SearchEngine == "PD-TMT,add inputFiles"){
-        paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_mergedFiles.txt" )
-      } else{
-        paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_Results.xlsx" )
-      }
+      paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_Results.xlsx" )
     },
     content = function(file){
-      if(input$SearchEngine == "PD-TMT,add inputFiles"){
-        vroom::vroom_write(fileout(), file)
-      }
       hs = createStyle(textDecoration = "Bold", wrapText = TRUE)
       write.xlsx(finalOut(), file,
                  sheetName = finalSheetnames(), overwrite = TRUE, headerStyle = hs, keepNA = TRUE)
