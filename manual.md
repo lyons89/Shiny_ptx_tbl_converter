@@ -1,12 +1,22 @@
 ## Manual
 
-This script was created for use at the UNC Metabolomics and Proteomics Core to converts output from proteomics software into an Excel (.xlsx) format for our collaborators. 
+This script was created for use at the UNC Metabolomics and Proteomics Core to convert output from proteomics software into an Excel (.xlsx) format for our clients/collaborators. 
 
-Currently, there are 3 options for table conversion, Maxquant results that are further processed with Perseus **(MQ-Perseus)**, **Byos**, and **Spectronaut**.
+Currently, there are 3 options for table conversion, Maxquant results that are further processed with Perseus **(MQ-Perseus)**, intact data from **Byos**, and LFQ DIA data from **Spectronaut**.
 
-### MQ-Perseus
-The MQ-Perseus option is specifically designed for AP-MS projects. It combines the input of unimputed and imputed data, from Persues exported as text files. The final Excel spreadsheet consists of a "Proteins" tab that contains all identified (unimputed) proteins. The second tab contains proteins that were first, filtered (usually for 50% quant values or a fraction of quant values per condition) then imputed protein results. Subsequent tabs are created, one for each comparison performed in Perseus (t-test), which is then filtered for a p-value < 0.05. There is an option to filter the comparison tabs by both p-value and a log2FC cutoff of +/- 1. The comparison tabs are sorted by log2FC, while the "Proteins" and "Imputed" tabs are sorted by summed intensity column (calculated from the non-log2 abundance values).
 
+### Spectronaut
+Spectronaut exports the quantitative and statistical values in separate files. This converter is used to combine them into a single Excel (xlsx) spreadsheet. 
+The Spectronaut converter reads in the tsv output Report and Candidate spreadsheets, merges the two, and then creates additional tabs for each comparison. The script can process both Protein and PTM related data. The SpN .rs schema files used to export the data are included in the repo. The comparison groups can be choosen once the candidate file is uploaded. There is also an option to upload an additoinal file from SpN that contains the sample information (ConditionSetup.tsv), this will automatically label the quant columns.
+For PTM data, modifications can be selected which will be filtered for in the data. Providing the ability to filter out Oxidation or CarbC peptides, for example.
+The comparison tabs are filtered by for significant hits (< 0.05) using either the p-value or q-value. The Candidate spreadsheet is in the "long" data format and should be exported with all filters removed. 
+
+
+### MQ-Perseus 
+This has been optimized for Perseus 1.6.14 and MaxQuant 1.6.15, results may very in other versions. 
+The MQ-Perseus option is specifically designed for AP-MS projects. It combines the input of unimputed and imputed data from Persues exported as text files. The final Excel spreadsheet consists of a "Proteins" tab that contains all identified (unimputed) proteins. The second tab contains proteins that were first, filtered (usually for 50% quant values or a fraction of quant values per experimental condition) then imputed protein results. Subsequent tabs are created, one for each comparison performed in Perseus (t-test), which is then filtered for a p-value < 0.05. There is an option to filter the comparison tabs by both p-value and a log2FC cutoff of +/- 1. The comparison tabs are sorted by log2FC, while the "Proteins" and "Imputed" tabs are sorted by summed intensity column (calculated from the non-log2 abundance values).
+
+Important Note: When labeling the conditions in Perseus, do not use an underscore "_" within the condition name. Example, do not do "sample_IP", instead "sampleIP". The reason is perseus separates comparisons with an "_" and it will mess the script up if you use one within a single condition.
 
 Required columns:  "Majority protein IDs", "Protein names", "Fasta headers", "Gene names", "Gene name", "Potential contaminant", "Peptides", "Razor + unique peptides", "Unique peptides"
 
@@ -20,10 +30,5 @@ For QC of intact ZipChip data we use the NIST mAB standard. We provide the resul
 Required columns: "Name", "Mass", "Expected mass"(only for NIST), and "Intensity"
 
 
-### Spectronaut
-Spectronaut exports the quantitative and statistical values in separate files. This converter is used to combine them into a single Excel (xlsx) spreadsheet. 
-The Spectronaut converter reads in the tsv output Report and Candidate spreadsheets, merges the two, and then creates additional tabs for each comparison. The script can process both Protein and PTM related data. The SpN .rs schema files used to export the data are included in the repo. The comparison groups can be choosen once the candidate file is uploaded. There is also an option to upload an additoinal file from SpN that contains the sample information (ConditionSetup.tsv), this will automatically label the quant columns.
-For PTM data, modifications can be selected which will be filtered for in the data. Providing the ability to filter out Oxidation or CarbC peptides, for example.
-The comparison tabs are filtered by for significant hits (< 0.05) using either the p-value or q-value. The Candidate spreadsheet is in the "long" data format and should be exported with all filters removed. 
 
 

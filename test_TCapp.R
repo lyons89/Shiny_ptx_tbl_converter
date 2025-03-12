@@ -128,16 +128,7 @@ ui <- navbarPage("Table Converter",
                                           accept = c(".txt")),
                                 fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
                                           multiple = FALSE,
-                                          accept = c(".txt")),
-                                # h6("You can filter the comparison tabs 2 ways, either strickly by pvalue < 0.05 or pvalue<0.05 & FC>1"),
-                                # radioButtons("PerseusFilterOption", "Choose method to filter data by:",
-                                #              choices = (c("pval", "pval & log2FC")))
-                              ),
-                              conditionalPanel(
-                                h3("PD-TMT adding inputFiles column"),
-                                condition = "input.SearchEngine == 'PD-TMT'",
-                                fileInput("PDtmtPSMS", "select PSMs input file", multiple = FALSE, accept = c(".txt")),
-                                fileInput("PDtmtInputFile", "select the input file", multiple = FALSE, accept = c(".txt"))
+                                          accept = c(".txt"))
                               ),
                               selectInput("tab2", "Select tab to view", choices = NULL),
                               textInput("outputFileName", label = "Export file name:", value = ""),
@@ -269,6 +260,14 @@ server = function(input, output, session){
     tabNames = str_replace_all(str_remove_all(names(dplyr::select(df, contains("p-value"))), "Student's T-test p-value "), 
                                pattern = "_", replacement = " v ")
     
+    remove_common_words <- function(text) {
+      words <- unlist(str_split(text, " "))  # Split into words
+      unique_words <- unique(words)  # Keep only unique words
+      paste(unique_words, collapse = " ")  # Recombine into a string
+    }
+    
+    tabNames = remove_common_words(tabNames)
+    
     tabnames = c("Proteins", "Imputed", tabNames)
     
   })
@@ -303,28 +302,6 @@ server = function(input, output, session){
     updateSelectInput(session, "tab2", choices = finalSheetnames())
 
   })
-  
-  # conv_PDtmt = eventReactive(list(input$convert, input$SearchEngine == "PD-TMT"),{
-  #   
-  #   PSMFile = PDtmtPSMSFile()
-  #   inputFile = PDtmtInputFile()
-  #   
-  #   clean_inputFIle = function(df){
-  #     
-  #     int = df %>%
-  #       dplyr::select(., all_of(c("File ID", "File Name"))) %>%
-  #       dplyr::mutate(., "Spectrum File" = basename(`File Name`)) %>%
-  #       dplyr::select(., -`File Name`)
-  #     
-  #   }
-  #   
-  #   clean_input = clean_inputFIle(inputFile)
-  #   
-  #   tmp = dplyr::left_join(PSMFile, clean_input, by = "File ID")
-  #   
-  #   return(tmp)
-  #   
-  # })
   
   conv_Byos = eventReactive(list(input$convert, input$SearchEngine == "Byos"),{
                       
@@ -683,8 +660,7 @@ server = function(input, output, session){
            "MQ-Perseus" = conv_Perseus_MQ(), 
            "Byos" = conv_Byos(),
            "Spectronaut" = conv_Spec())
-           #"PD-TMT" = conv_PDtmt())
-    
+
   })
   
 
@@ -696,27 +672,7 @@ server = function(input, output, session){
   
   output$df2 = DT::renderDataTable(DT())
   
-  # here have to add an if statement (?) so that PDtmt can be downloaded as a .txt file.
-  # output$download = downloadHandler(
-  #   filename = function() {
-  #     if(input$SearchEngine == "PD-TMT"){
-  #       paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_mergedFiles.txt" )
-  #     } else{
-  #       paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_Results.xlsx" )
-  #     }
-  #   },
-  #   content = function(file){
-  #     if(input$SearchEngine == "PD-TMT"){
-  #       vroom::vroom_write(finalOut(), file)
-  #     }else{
-  #       hs = createStyle(textDecoration = "Bold", wrapText = TRUE)
-  #       write.xlsx(finalOut(), file,
-  #                  sheetName = finalSheetnames(), overwrite = TRUE, headerStyle = hs, keepNA = TRUE)
-  #     }
-  #   }
-  #   
-  # )
-  
+
   output$download = downloadHandler(
     filename = function() {
       paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_Results.xlsx" )
@@ -728,7 +684,6 @@ server = function(input, output, session){
     }
     
   )
-  
 
 }
 
