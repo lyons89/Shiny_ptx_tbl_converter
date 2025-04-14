@@ -55,6 +55,26 @@ APMS_MQ = function(df){
   
 }
 
+APMS_FP = function(df){
+  
+  df %>%
+    dplyr::select(., any_of(c("Protein ID", "Entry Name", "Gene", "Description" ,"Organism", "Indistinguishable Proteins", "Protein Length", 
+                              "Combined Total Peptides")), 
+                  contains("Difference"), contains("p-value"), contains("q-value", ignore.case = FALSE), contains("Significant"), 
+                  ends_with("MaxLFQ Intensity"), ends_with("Spectral Count"), -any_of(c("Combined Unique Spectral Count", "Combined Spectral Count"))) %>%
+    dplyr::mutate(across(.cols = starts_with("LFQ intensity"), ~round(.x, 4)),
+                  across(.cols = contains("Difference"), ~round(.x, 4))) %>%
+    dplyr::mutate("Summed LFQ Intensity" = round(rowSums(2^across(.cols = ends_with("MaxLFQ Intensity")), na.rm=TRUE)), 0) %>%
+    dplyr::select(., any_of(c("Protein ID", "Entry Name", "Gene", "Description" ,"Organism", "Indistinguishable Proteins", "Protein Length", 
+                              "Combined Total Peptides", "Summed LFQ Intensity")), 
+                  contains("Difference"), contains("p-value"), contains("q-value", ignore.case = FALSE), contains("Significant"), 
+                  ends_with("MaxLFQ Intensity"), ends_with("Spectral Count"),
+                  -contains("significant", ignore.case=FALSE)) %>%
+    dplyr::arrange(.,desc(`Summed LFQ Intensity`))
+  
+  
+}
+
 import_pers = function(file_loc){
   
   firstRead = read.delim(file_loc, sep = "\t", na.strings = c("NaN", "NA"), check.names = FALSE)
@@ -76,7 +96,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("Spectronaut", "Byos", "MQ-Perseus", "PD-TMT")),
+                                           choices = c("Spectronaut", "Byos", "MQ-Perseus", "FP-Perseus")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -123,6 +143,16 @@ ui <- navbarPage("Table Converter",
                               conditionalPanel(
                                 h3("MQ-Perseus"),
                                 condition = "input.SearchEngine == 'MQ-Perseus'", # can this have 2 options
+                                fileInput("perseusUnimputedFile", "Select the UNIMPUTED Perseus txt file:",
+                                          multiple = FALSE,
+                                          accept = c(".txt")),
+                                fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
+                                          multiple = FALSE,
+                                          accept = c(".txt"))
+                              ),
+                              conditionalPanel(
+                                h3("FP-Perseus"),
+                                condition = "input.SearchEngine == 'FP-Perseus'", # can this have 2 options
                                 fileInput("perseusUnimputedFile", "Select the UNIMPUTED Perseus txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
@@ -260,13 +290,13 @@ server = function(input, output, session){
     tabNames = str_replace_all(str_remove_all(names(dplyr::select(df, contains("p-value"))), "Student's T-test p-value "), 
                                pattern = "_", replacement = " v ")
     
-    remove_common_words <- function(text) {
-      words <- unlist(str_split(text, " "))  # Split into words
-      unique_words <- unique(words)  # Keep only unique words
-      paste(unique_words, collapse = " ")  # Recombine into a string
-    }
+    # remove_common_words <- function(text) {
+    #   words <- unlist(str_split(text, " "))  # Split into words
+    #   unique_words <- unique(words)  # Keep only unique words
+    #   paste(unique_words, collapse = " ")  # Recombine into a string
+    # }
     
-    tabNames = remove_common_words(tabNames)
+    # tabNames = remove_common_words(tabNames)
     
     tabnames = c("Proteins", "Imputed", tabNames)
     
@@ -292,7 +322,8 @@ server = function(input, output, session){
     switch(input$SearchEngine,
            "MQ-Perseus" = perseusSheetNames(), 
            "Byos" = ByosSheetNames(),
-           "Spectronaut" = spectroSheetNames())
+           "Spectronaut" = spectroSheetNames(),
+           "FP-Perseus" = perseusSheetNames())
     
   })
   
@@ -654,10 +685,39 @@ server = function(input, output, session){
     
   })
   
+  conv_Perseus_FP = eventReactive(list(input$convert, input$SearchEngine == "FP-Perseus|PD-Perseus"),{
+    
+    
+    if(input$SearchEngine == "FP-Perseus"){
+      
+      cleaned_unimputed = APMS_FP(df = perseusUnImputed())
+      cleaned_imputed = APMS_FP(df = perseusImputed())
+      
+      # just separate the comparisons that are on the cleaned_imputed df
+      log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+      pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
+      
+      filt = map2(log_names, pvalue_names, function(x,y){
+        int = cleaned_imputed %>%
+          dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+          dplyr::arrange(., desc((!!as.symbol(x))))
+      })
+      
+      lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
+      names(lst) = perseusSheetNames()
+      
+      return(lst)
+    }
+    
+  })
+  
+  
+  
   finalOut = reactive({
     
     switch(input$SearchEngine,
-           "MQ-Perseus" = conv_Perseus_MQ(), 
+           "MQ-Perseus" = conv_Perseus_MQ(),
+           "FP-Perseus" = conv_Perseus_FP(),
            "Byos" = conv_Byos(),
            "Spectronaut" = conv_Spec())
 
