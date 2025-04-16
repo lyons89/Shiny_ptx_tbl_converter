@@ -290,15 +290,24 @@ server = function(input, output, session){
     tabNames = str_replace_all(str_remove_all(names(dplyr::select(df, contains("p-value"))), "Student's T-test p-value "), 
                                pattern = "_", replacement = " v ")
     
-    # remove_common_words <- function(text) {
-    #   words <- unlist(str_split(text, " "))  # Split into words
-    #   unique_words <- unique(words)  # Keep only unique words
-    #   paste(unique_words, collapse = " ")  # Recombine into a string
+    
+    tab_names = paste0("comp_", 1:length(tabNames))
+    
+    # truncate_to_30 <- function(strings) {
+    #   sapply(strings, function(x) {
+    #     if (nchar(x) > 30) {
+    #       substr(x, 1, 30)
+    #     } else {
+    #       x
+    #     }
+    #   }, USE.NAMES = FALSE)
     # }
+    # 
+    # tabnames = truncate_to_30(tabNames)
     
     # tabNames = remove_common_words(tabNames)
     
-    tabnames = c("Proteins", "Imputed", tabNames)
+    tabnames = c("Proteins", "Imputed", tab_names)
     
   })
   
