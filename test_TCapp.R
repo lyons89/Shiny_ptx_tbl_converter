@@ -96,7 +96,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("Spectronaut", "Byos", "MQ-Perseus", "FP-Perseus")),
+                                           choices = c("Spectronaut", "Byos", "MQ-Perseus", "FP-Perseus", "MIBS-SpN")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -158,8 +158,29 @@ ui <- navbarPage("Table Converter",
                                           accept = c(".txt")),
                                 fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
                                           multiple = FALSE,
-                                          accept = c(".txt"))
+                                          accept = c(".txt")),
+                                radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
+                                
                               ),
+                              conditionalPanel(
+                                h3("MIBS-SpN"),
+                                condition = "input.SearchEngine == 'MIBS-SpN'", # can this have 2 options
+                                fileInput("SpectroStatsFile", "Select a Candidate Stats file:",
+                                          multiple = FALSE,
+                                          accept = c(".tsv")), 
+                                fileInput("SpectroQuantFile", "Select the Report quant file:",
+                                          multiple = FALSE,
+                                          accept = c(".tsv")),
+                                fileInput("SpectroConditions", "Select a Condition file:",
+                                          multiple = FALSE,
+                                          accept = c(".tsv")),
+                                fileInput("KinaseDatabase", "Select the Kinase Database:",
+                                          multiple = FALSE,
+                                          accept = c(".xlsx")),
+                                checkboxGroupInput("KinaseSpecies", "Choose which Species to use:",
+                                                   choices = NULL)
+                              ),
+                              
                               selectInput("tab2", "Select tab to view", choices = NULL),
                               textInput("outputFileName", label = "Export file name:", value = ""),
                               actionButton("convert", label = "Convert", class = "btn btn-success"),
@@ -203,20 +224,6 @@ server = function(input, output, session){
   byosExpectedInput = reactive({
     
     expected = extract(input$expectedMasses)
-    
-  })
-  
-  PDtmtPSMSFile = reactive({
-    req(input$PDtmtPSMS)
-    file = vroom(input$PDtmtPSMS$datapath, num_threads = 8)
-    return(file)
-    
-  })
-  
-  PDtmtInputFile = reactive({
-    req(input$PDtmtInputFile)
-    file = vroom(input$PDtmtInputFile$datapath)
-    return(file)
     
   })
   
@@ -312,7 +319,25 @@ server = function(input, output, session){
   })
   
   
+  kinaseDatabase = reactive({
+    
+    req(input$KinaseDatabase)
+    #file = read.delim(input$SpectroQuantFile$datapath, sep = "\t", check.names = FALSE)
+    file = read.xlsx(input$KinaseDatabase$datapath)
+    return(file)
+    
+  })
+  
+  observeEvent(kinaseDatabase(), {
+
+    df = kinaseDatabase()
+    updateCheckboxGroupInput(session, "KinaseSpecies", choices = c(names(df)[4:length(df)], "None"))
+
+  })
+  
+  
   observeEvent(spectroStats(), {
+    
     
     updateCheckboxGroupInput(session, "SpNcomparisons", choices = sort(unique(spectroStats()$`Comparison (group1/group2)`)))
     
@@ -702,15 +727,30 @@ server = function(input, output, session){
       cleaned_unimputed = APMS_FP(df = perseusUnImputed())
       cleaned_imputed = APMS_FP(df = perseusImputed())
       
-      # just separate the comparisons that are on the cleaned_imputed df
-      log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
-      pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
       
-      filt = map2(log_names, pvalue_names, function(x,y){
-        int = cleaned_imputed %>%
-          dplyr::filter(., !!as.symbol(y) < 0.05) %>%
-          dplyr::arrange(., desc((!!as.symbol(x))))
-      })
+      if(input$statsFilter == "pvalue"){
+        
+        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+        pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
+        
+        filt = map2(log_names, pvalue_names, function(x,y){
+          int = cleaned_imputed %>%
+            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+            dplyr::arrange(., desc((!!as.symbol(x))))
+        })
+      }
+      
+      if(input$statsFilter == "qvalue"){
+        
+        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+        pvalue_names = names(dplyr::select(cleaned_imputed, contains("q-value")))
+        
+        filt = map2(log_names, pvalue_names, function(x,y){
+          int = cleaned_imputed %>%
+            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+            dplyr::arrange(., desc((!!as.symbol(x))))
+        })
+      }
       
       lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
       names(lst) = perseusSheetNames()
@@ -721,7 +761,112 @@ server = function(input, output, session){
   })
   
   
+  conv_MIBS_SpN = eventReactive(list(input$convert, input$SearchEngine == "MIBS-SpN"),{
+    
+    stats_df = spectroStats()
+    quant_df = spectroQuant()
+    
+    stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
+      dplyr::filter(., if_any(matches("Valid"), ~Valid == TRUE)) %>% # if the valid column exists, filter it for only true values
+      dplyr::select(., comparison = starts_with("Comparison"), Group,
+                    log2FC = `AVG Log2 Ratio`) %>%
+      dplyr::filter(., comparison %in% input$SpNcomparisons) %>%
+      #dplyr::filter(!grepl("pool", tolower(comparison))) %>% # remove comparisons that contain the word "pool", should not need now with SpNcomparisons
+      tidyr::pivot_wider(., names_from = comparison, values_from = c(log2FC))
+    
+    
+    report_column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", "ProteinDescriptions","FastaFiles", "FastaHeaders",
+                                 "CellularComponent", "BiologicalProcess", "MolecularFunction", "UniquePeptides")
+    
+    quant2 = quant_df %>%
+      dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.NrOfStrippedSequencesIdentified (Experiment-wide)",
+                                "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PG.Quantity")) %>%
+      dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
+      dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
+      dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
+      dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE)),0) %>%
+      dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
+      dplyr::left_join(., stats2, by = c("ProteinGroups" = "Group")) %>%
+      dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), # unique peptides column comes from the candidates dataframe
+                    starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
+      dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
+      dplyr::mutate("Contaminant" = grepl("contaminants", FastaFiles)) %>%
+      dplyr::arrange(., desc(SummedQuantity)) %>%
+      Filter(function(x) !all(is.na(x)), .) %>% # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
+      dplyr::relocate(., "Contaminant", .after = "FastaFiles") %>%
+      dplyr::mutate(across(.cols = matches("[PG|PTM].Quantity"), ~log2(.x), .names = "log2_{.col}"), .keep = "all") %>% # log2 transform data
+      dplyr::mutate(across(.cols = matches("[PG|PTM].Quantity"), ~round(.x, 4))) %>% # round log2 values 
+      dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity", "Contaminant")),
+                    starts_with("log2FC"), starts_with("log2_"), ends_with("Quantity")) %>% 
+      dplyr::arrange(., desc(SummedQuantity)) # sort by decending summed Quantity
+    
+      
+    # if condition file was added, rename the quant column to match
+    # for some reason this code works when run on its own but not when run within Shiny??
+
+    cond_df = spectroCond()
+
+    var_names = cond_df %>%
+      dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
+      dplyr::mutate(num = seq(1:nrow(.))) %>%
+      dplyr::bind_rows(.,.) %>%
+      dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>% # rep names 2 times, for log2 and for non-transformed
+      dplyr::mutate(samp_names = paste0(rep(c("Log2_", ""), each = max(num)), Condition, "_", Replicate, "_Quantity")) %>%
+      dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+      tibble::deframe()
+          
+    quant2 = quant2 %>%
+      dplyr::rename(!!!var_names)
+      
+    # get kinase database
+    # if no database is selected use the term "kinase" in the protein description column
+    
+    kiansedb = kinaseDatabase()
+    
+    if(input$KinaseSpecies == "None"){
+      
+      quant3 = quant2 %>%
+        mutate("Kinase.Family" = grepl("kinase", ProteinDescriptions)) %>%
+        dplyr::relocate(., "Kinase.Family", .after = "FastaFiles")
+      
+    }else{
+      kinasedb = kinasedb %>%
+        dplyr::select("Human.Uniprot", `Kinase.Family`)
+      #dplyr::select(input$KinaseSpecies, `Kinase Family`)
+      
+      quant3 = quant2 %>%
+        left_join(., kinasedb, by = c(ProteinGroups = names(kinasedb[1]))) %>%
+        dplyr::relocate(., "Kinase.Family", .after = "FastaFiles")
+      
+    }
+    
+    
+    # filtering for kinase family members
+    kinaseOnly = quant3 %>%
+      dplyr::filter(!is.na(Kinase.Family))
+    
+    # QC
+    # I think i'll have to pivot_longer the data, will need non-log2 quant values, kinase.family, and proteingroups columns
+    # then group_by(Kinase.family) %>% summarize()
+    qc = quant3 %>%
+      dplyr::select(., any_of(c("ProteinGroups", "Kinase.Family")), ends_with("_Quantity")) %>%
+      tidyr::pivot_longer(col = ends_with("Quantity"), values_to = "Log2_Quant", names_to = "samples") %>%
+      dplyr::mutate(quant = 2^Log2_Quant) %>%
+      dplyr::mutate(kinase = if_else(!is.na(Kinase.Family), TRUE, FALSE)) %>%
+      dplyr::group_by(samples) %>%
+      dplyr::summarize(kinase_sum = sum(quant[kinase == TRUE], na.rm=TRUE),
+                       total_sum = sum(quant, na.rm = TRUE),
+                       percent_enrichment = (kinase_sum / total_sum * 100))
+    
+
+    lst = c(list(quant3, qc, kinaseOnly))
+    names(lst) = spectroSheetNames()
+    
+    return(lst) 
+  })
   
+  
+
   finalOut = reactive({
     
     switch(input$SearchEngine,
