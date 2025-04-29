@@ -159,7 +159,8 @@ ui <- navbarPage("Table Converter",
                                 fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
-                                radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
+                                radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), 
+                                             selected = "pvalue"),
                                 
                               ),
                               conditionalPanel(
