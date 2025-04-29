@@ -159,7 +159,8 @@ ui <- navbarPage("Table Converter",
                                 fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
-                                radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
+                                radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), 
+                                             selected = "pvalue"),
                                 
                               ),
                               conditionalPanel(
@@ -180,7 +181,6 @@ ui <- navbarPage("Table Converter",
                                 checkboxGroupInput("KinaseSpecies", "Choose which Species to use:",
                                                    choices = NULL)
                               ),
-                              
                               selectInput("tab2", "Select tab to view", choices = NULL),
                               textInput("outputFileName", label = "Export file name:", value = ""),
                               actionButton("convert", label = "Convert", class = "btn btn-success"),
