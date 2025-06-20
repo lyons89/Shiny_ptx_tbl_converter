@@ -166,9 +166,9 @@ ui <- navbarPage("Table Converter",
                               conditionalPanel(
                                 h3("MIBS-SpN"),
                                 condition = "input.SearchEngine == 'MIBS-SpN'", # can this have 2 options
-                                fileInput("SpectroStatsFile", "Select a Candidate Stats file:",
-                                          multiple = FALSE,
-                                          accept = c(".tsv")), 
+                                # fileInput("SpectroStatsFile", "Select a Candidate Stats file:",
+                                #           multiple = FALSE,
+                                #           accept = c(".tsv")), 
                                 fileInput("SpectroQuantFile", "Select the Report quant file:",
                                           multiple = FALSE,
                                           accept = c(".tsv")),
@@ -318,11 +318,15 @@ server = function(input, output, session){
     
   })
   
+  MIBsSpNSheetNames = reactive({
+    
+    tab_names = c("Proteins", "QC", "Kinases")
+    
+  })
   
   kinaseDatabase = reactive({
     
     req(input$KinaseDatabase)
-    #file = read.delim(input$SpectroQuantFile$datapath, sep = "\t", check.names = FALSE)
     file = read.xlsx(input$KinaseDatabase$datapath)
     return(file)
     
@@ -357,7 +361,8 @@ server = function(input, output, session){
            "MQ-Perseus" = perseusSheetNames(), 
            "Byos" = ByosSheetNames(),
            "Spectronaut" = spectroSheetNames(),
-           "FP-Perseus" = perseusSheetNames())
+           "FP-Perseus" = perseusSheetNames(),
+           "MIBS-SpN" = MIBsSpNSheetNames())
     
   })
   
@@ -760,19 +765,19 @@ server = function(input, output, session){
     
   })
   
-  
   conv_MIBS_SpN = eventReactive(list(input$convert, input$SearchEngine == "MIBS-SpN"),{
     
-    stats_df = spectroStats()
+    # stats_df = spectroStats()
     quant_df = spectroQuant()
+    cond_df = spectroCond()
     
-    stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
-      dplyr::filter(., if_any(matches("Valid"), ~Valid == TRUE)) %>% # if the valid column exists, filter it for only true values
-      dplyr::select(., comparison = starts_with("Comparison"), Group,
-                    log2FC = `AVG Log2 Ratio`) %>%
-      dplyr::filter(., comparison %in% input$SpNcomparisons) %>%
-      #dplyr::filter(!grepl("pool", tolower(comparison))) %>% # remove comparisons that contain the word "pool", should not need now with SpNcomparisons
-      tidyr::pivot_wider(., names_from = comparison, values_from = c(log2FC))
+    # stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
+    #   #dplyr::filter(., if_any(matches("Valid"), ~Valid == TRUE)) %>% # if the valid column exists, filter it for only true values
+    #   dplyr::select(., comparison = starts_with("Comparison"), Group,
+    #                 log2FC = `AVG Log2 Ratio`) %>%
+    #   #dplyr::filter(., comparison %in% input$SpNcomparisons) %>%
+    #   #dplyr::filter(!grepl("pool", tolower(comparison))) %>% # remove comparisons that contain the word "pool", should not need now with SpNcomparisons
+    #   tidyr::pivot_wider(., names_from = comparison, values_from = c(log2FC))
     
     
     report_column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", "ProteinDescriptions","FastaFiles", "FastaHeaders",
@@ -786,9 +791,9 @@ server = function(input, output, session){
       dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
       dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE)),0) %>%
       dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
-      dplyr::left_join(., stats2, by = c("ProteinGroups" = "Group")) %>%
+      #dplyr::left_join(., stats2, by = c("ProteinGroups" = "Group")) %>%
       dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), # unique peptides column comes from the candidates dataframe
-                    starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
+                   ends_with("PG.Quantity")) %>%
       dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
       dplyr::mutate("Contaminant" = grepl("contaminants", FastaFiles)) %>%
       dplyr::arrange(., desc(SummedQuantity)) %>%
@@ -797,15 +802,14 @@ server = function(input, output, session){
       dplyr::mutate(across(.cols = matches("[PG|PTM].Quantity"), ~log2(.x), .names = "log2_{.col}"), .keep = "all") %>% # log2 transform data
       dplyr::mutate(across(.cols = matches("[PG|PTM].Quantity"), ~round(.x, 4))) %>% # round log2 values 
       dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity", "Contaminant")),
-                    starts_with("log2FC"), starts_with("log2_"), ends_with("Quantity")) %>% 
+                    starts_with("log2_"), ends_with("Quantity")) %>% 
       dplyr::arrange(., desc(SummedQuantity)) # sort by decending summed Quantity
     
       
     # if condition file was added, rename the quant column to match
     # for some reason this code works when run on its own but not when run within Shiny??
 
-    cond_df = spectroCond()
-
+    
     var_names = cond_df %>%
       dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
       dplyr::mutate(num = seq(1:nrow(.))) %>%
@@ -821,7 +825,7 @@ server = function(input, output, session){
     # get kinase database
     # if no database is selected use the term "kinase" in the protein description column
     
-    kiansedb = kinaseDatabase()
+    kinasedb = kinaseDatabase()
     
     if(input$KinaseSpecies == "None"){
       
@@ -839,7 +843,6 @@ server = function(input, output, session){
         dplyr::relocate(., "Kinase.Family", .after = "FastaFiles")
       
     }
-    
     
     # filtering for kinase family members
     kinaseOnly = quant3 %>%
@@ -860,7 +863,7 @@ server = function(input, output, session){
     
 
     lst = c(list(quant3, qc, kinaseOnly))
-    names(lst) = spectroSheetNames()
+    names(lst) = MIBsSpNSheetNames()
     
     return(lst) 
   })
@@ -873,7 +876,8 @@ server = function(input, output, session){
            "MQ-Perseus" = conv_Perseus_MQ(),
            "FP-Perseus" = conv_Perseus_FP(),
            "Byos" = conv_Byos(),
-           "Spectronaut" = conv_Spec())
+           "Spectronaut" = conv_Spec(),
+           "MIBS-SpN" = conv_MIBS_SpN())
 
   })
   
