@@ -75,6 +75,47 @@ APMS_FP = function(df){
   
 }
 
+APMS_PD = function(df){
+  
+  extract_GN_values <- function(text) {
+    # Use gregexpr to match all GN=... values across the string
+    matches <- gregexpr("GN=([^ ]+)", text)
+    extracted <- regmatches(text, matches)
+    
+    # Remove the "GN=" prefix
+    genes <- lapply(extracted, function(x) sub("GN=", "", x))
+    
+    # Collapse into a semicolon-separated string
+    collapsed <- sapply(genes, function(x) paste(x, collapse = "; "))
+    
+    # Convert empty strings or "NA" to NA
+    result <- collapsed %>%
+      na_if("NA") %>%
+      na_if("")
+    
+    return(result)
+  }
+  
+  
+  df %>%
+    dplyr::select(., any_of(c("Accession", "Description", "Contaminant", "Modifications", "Coverage [%]", 
+                              "# PSMs", "# Peptides", "# Unique Peptides", "# AAs",  "MW [kDa]")), 
+                  contains("Difference"), contains("p-value"), contains("q-value", ignore.case = FALSE), contains("Significant"), 
+                  starts_with("Abundance:")) %>%
+    dplyr::mutate(across(.cols = starts_with("Abundance:"), ~round(.x, 4)),
+                  across(.cols = contains("Difference"), ~round(.x, 4))) %>%
+    dplyr::mutate(Gene = unlist(purrr::map(.$Description, ~extract_GN_values(.x)))) %>% # this can extract all gene names from multiple description columns
+    dplyr::mutate("SummedAbundance" = round(rowSums(2^across(.cols = starts_with("Abundance:")), na.rm=TRUE)), 0) %>%
+    dplyr::select(., any_of(c("Accession", "Description", "Gene", "Contaminant", "Modifications", "Coverage [%]",
+                              "# PSMs", "# Peptides", "# Unique Peptides", "# AAs",  "MW [kDa]", "SummedAbundance")),
+                  contains("Difference"), contains("p-value"), contains("q-value"), contains("Significant"), starts_with("Abundance:"),
+                  -contains("significant", ignore.case=FALSE)) %>%
+    dplyr::arrange(.,desc(SummedAbundance))
+  
+  
+}
+
+
 import_pers = function(file_loc){
   
   firstRead = read.delim(file_loc, sep = "\t", na.strings = c("NaN", "NA"), check.names = FALSE)
@@ -96,7 +137,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("Spectronaut", "Byos", "MQ-Perseus", "FP-Perseus", "MIBS-SpN")),
+                                           choices = c("Spectronaut", "Byos", "MQ-Perseus", "FP-Perseus", "PD-Perseus", "MIBS-SpN")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -152,7 +193,20 @@ ui <- navbarPage("Table Converter",
                               ),
                               conditionalPanel(
                                 h3("FP-Perseus"),
-                                condition = "input.SearchEngine == 'FP-Perseus'", # can this have 2 options
+                                condition = "input.SearchEngine == 'FP-Perseus'", 
+                                fileInput("perseusUnimputedFile", "Select the UNIMPUTED Perseus txt file:",
+                                          multiple = FALSE,
+                                          accept = c(".txt")),
+                                fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
+                                          multiple = FALSE,
+                                          accept = c(".txt")),
+                                radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), 
+                                             selected = "pvalue"),
+                                
+                              ),
+                              conditionalPanel(
+                                h3("PD-Perseus"),
+                                condition = "input.SearchEngine == 'PD-Perseus'", 
                                 fileInput("perseusUnimputedFile", "Select the UNIMPUTED Perseus txt file:",
                                           multiple = FALSE,
                                           accept = c(".txt")),
@@ -362,6 +416,7 @@ server = function(input, output, session){
            "Byos" = ByosSheetNames(),
            "Spectronaut" = spectroSheetNames(),
            "FP-Perseus" = perseusSheetNames(),
+           "PD-Perseus" = perseusSheetNames(),
            "MIBS-SpN" = MIBsSpNSheetNames())
     
   })
@@ -698,7 +753,7 @@ server = function(input, output, session){
     return(lst) 
   })
   
-  conv_Perseus_MQ = eventReactive(list(input$convert, input$SearchEngine == "MQ-Perseus|PD-Perseus"),{
+  conv_Perseus_MQ = eventReactive(list(input$convert, input$SearchEngine == "MQ-Perseus"),{
     
     
     if(input$SearchEngine == "MQ-Perseus"){
@@ -724,7 +779,7 @@ server = function(input, output, session){
     
   })
   
-  conv_Perseus_FP = eventReactive(list(input$convert, input$SearchEngine == "FP-Perseus|PD-Perseus"),{
+  conv_Perseus_FP = eventReactive(list(input$convert, input$SearchEngine == "FP-Perseus"),{
     
     
     if(input$SearchEngine == "FP-Perseus"){
@@ -868,6 +923,46 @@ server = function(input, output, session){
     return(lst) 
   })
   
+  conv_Perseus_PD = eventReactive(list(input$convert, input$SearchEngine == "PD-Perseus"),{
+    
+    
+    if(input$SearchEngine == "PD-Perseus"){
+      
+      cleaned_unimputed = APMS_PD(df = perseusUnImputed())
+      cleaned_imputed = APMS_PD(df = perseusImputed())
+      
+      
+      if(input$statsFilter == "pvalue"){
+        
+        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+        pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
+        
+        filt = map2(log_names, pvalue_names, function(x,y){
+          int = cleaned_imputed %>%
+            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+            dplyr::arrange(., desc((!!as.symbol(x))))
+        })
+      }
+      
+      if(input$statsFilter == "qvalue"){
+        
+        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+        pvalue_names = names(dplyr::select(cleaned_imputed, contains("q-value")))
+        
+        filt = map2(log_names, pvalue_names, function(x,y){
+          int = cleaned_imputed %>%
+            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+            dplyr::arrange(., desc((!!as.symbol(x))))
+        })
+      }
+      
+      lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
+      names(lst) = perseusSheetNames()
+      
+      return(lst)
+    }
+    
+  })
   
 
   finalOut = reactive({
@@ -875,6 +970,7 @@ server = function(input, output, session){
     switch(input$SearchEngine,
            "MQ-Perseus" = conv_Perseus_MQ(),
            "FP-Perseus" = conv_Perseus_FP(),
+           "PD-Perseus" = conv_Perseus_PD(),
            "Byos" = conv_Byos(),
            "Spectronaut" = conv_Spec(),
            "MIBS-SpN" = conv_MIBS_SpN())
