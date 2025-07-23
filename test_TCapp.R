@@ -115,6 +115,25 @@ APMS_PD = function(df){
   
 }
 
+APMS_SpN = function(df){
+  
+
+  df %>%
+    dplyr::select(., any_of(c("ProteinGroups", "ProteinNames","Genes", "ProteinDescriptions",  "Contaminant", "FastaFiles", , 
+                              "UniquePeptides", "SummedQuantity")), 
+                  contains("Difference"), contains("p-value"), contains("q-value", ignore.case = FALSE), contains("Significant"), 
+                  ends_with("_Quantity")) %>%
+    dplyr::mutate(across(.cols = ends_with("_Quantity"), ~round(.x, 4)),
+                  across(.cols = contains("Difference"), ~round(.x, 4))) %>%
+    dplyr::select(., any_of(c("Accession", "Description", "Gene", "Contaminant", "Modifications", "Coverage [%]",
+                              "# PSMs", "# Peptides", "# Unique Peptides", "# AAs",  "MW [kDa]", "SummedAbundance")),
+                  contains("Difference"), contains("p-value"), contains("q-value"), contains("Significant"), starts_with("Abundance:"),
+                  -contains("significant", ignore.case=FALSE)) %>%
+    dplyr::arrange(.,desc(SummedAbundance))
+  
+  
+}
+
 
 import_pers = function(file_loc){
   
