@@ -368,7 +368,7 @@ server = function(input, output, session){
     
     # tabNames = remove_common_words(tabNames)
     
-    tabnames = c("Proteins", "Imputed", tab_names)
+    tabnames = c("Unimputed", "Imputed", tab_names)
     
   })
   
