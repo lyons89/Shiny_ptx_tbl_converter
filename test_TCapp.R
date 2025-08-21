@@ -115,6 +115,63 @@ APMS_PD = function(df){
   
 }
 
+APMS_SpN = function(df, cond_df){
+
+  report_column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", "ProteinDescriptions", "Contaminant", "FastaFiles", "FastaHeaders",
+                               "CellularComponent", "BiologicalProcess", "MolecularFunction",  "MolecularWeight", "UniquePeptides")
+  
+  
+  df2 = df  %>%
+    dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.NrOfStrippedSequencesIdentified (Experiment-wide)",
+                              "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction", "PG.MolecularWeight")), 
+                  contains("Difference"), contains("p-value"), contains("q-value"), ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")) %>%
+    dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
+    dplyr::mutate("Contaminant" = grepl("C|contaminants", PG.FastaFiles)) %>%
+    dplyr::rename_with(., .cols = -c(ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")), ~gsub("^.*\\.", "", .x)) %>%      
+    #dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
+    dplyr::mutate("SummedQuantity" = round(rowSums(2^across(ends_with("PG.Quantity")), na.rm=TRUE),0)) %>%
+    dplyr::mutate(MolecularWeight = round(MolecularWeight / 1000, 2)) %>%
+    dplyr::rename_with(~str_replace_all(.x, "\\s+", ""), .cols = contains("[")) %>%
+    #dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
+    dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4)),
+                  across(.cols = contains("Difference"), ~round(.x, 4))) %>%
+    dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), # unique peptides column comes from the candidates dataframe
+                  contains("Difference"), contains("p-value"), contains("q-value"), ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")) %>%
+    dplyr::arrange(., desc(SummedQuantity)) %>%
+    Filter(function(x) !all(is.na(x)), .) # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
+  
+  # This replaces the SpN default names which are the raw file names, with those that you put in the Condition Setup 
+  clean_names = function(cond_df){
+    
+    new_quant_names = cond_df %>%
+      dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
+      dplyr::mutate(num = seq(1:nrow(.))) %>%
+      dplyr::mutate(current_names = paste0("[", num, "]", `Run Label`, ".PG.Quantity")) %>%
+      dplyr::mutate(samp_names = paste0(Condition, "_", Replicate, "_Quantity")) %>%
+      dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+      tibble::deframe()
+    
+    RunEvidence_names = cond_df %>%
+      dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
+      dplyr::mutate(num = seq(1:nrow(.))) %>%
+      dplyr::mutate(current_names = paste0("[", num, "]", `Run Label`, ".PG.RunEvidenceCount")) %>%
+      dplyr::mutate(samp_names = paste0(Condition, "_", Replicate, "_RunEvidenceCount")) %>%
+      dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+      tibble::deframe()
+    
+    
+    var_names = c(new_quant_names, RunEvidence_names)
+    
+  }
+  
+  new_names = clean_names(cond_df)
+  
+  df2 = df2 %>%
+    dplyr::rename(!!!new_names)
+  
+  return(df2)
+}
+
 
 import_pers = function(file_loc){
   
@@ -137,7 +194,7 @@ ui <- navbarPage("Table Converter",
                             sidebarPanel(
                               h3("Select data type"),
                               radioButtons("SearchEngine", "Select Seach Engine Used:",
-                                           choices = c("Spectronaut", "Byos", "MQ-Perseus", "FP-Perseus", "PD-Perseus", "MIBS-SpN")),
+                                           choices = c("Spectronaut", "Byos", "MQ-Perseus", "FP-Perseus", "PD-Perseus", "SpN-Perseus", "MIBS-SpN")),
                               conditionalPanel(
                                 h3("Byos"),
                                 condition = "input.SearchEngine == 'Byos'", # Do i need Byos to be in single quotes? yes
@@ -216,6 +273,21 @@ ui <- navbarPage("Table Converter",
                                 radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), 
                                              selected = "pvalue"),
                                 
+                              ),
+                              conditionalPanel(
+                                h3("SpN-Perseus"),
+                                condition = "input.SearchEngine == 'SpN-Perseus'", 
+                                fileInput("perseusUnimputedFile", "Select the UNIMPUTED Perseus txt file:",
+                                          multiple = FALSE,
+                                          accept = c(".txt")),
+                                fileInput("perseusImputedFile", "Select the IMPUTED Perseus txt file:",
+                                          multiple = FALSE,
+                                          accept = c(".txt")),
+                                fileInput("SpectroConditions", "Select a Condition file:",
+                                          multiple = FALSE,
+                                          accept = c(".tsv")),
+                                radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), 
+                                             selected = "pvalue")
                               ),
                               conditionalPanel(
                                 h3("MIBS-SpN"),
@@ -351,7 +423,6 @@ server = function(input, output, session){
     tabNames = str_replace_all(str_remove_all(names(dplyr::select(df, contains("p-value"))), "Student's T-test p-value "), 
                                pattern = "_", replacement = " v ")
     
-    
     tab_names = paste0("comp_", 1:length(tabNames))
     
     # truncate_to_30 <- function(strings) {
@@ -417,6 +488,7 @@ server = function(input, output, session){
            "Spectronaut" = spectroSheetNames(),
            "FP-Perseus" = perseusSheetNames(),
            "PD-Perseus" = perseusSheetNames(),
+           "SpN-Perseus" = perseusSheetNames(),
            "MIBS-SpN" = MIBsSpNSheetNames())
     
   })
@@ -517,7 +589,7 @@ server = function(input, output, session){
         dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), # unique peptides column comes from the candidates dataframe
                       starts_with("log2FC"), starts_with("pvalue"), starts_with("qvalue"), ends_with("PG.Quantity")) %>%
         dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
-        dplyr::mutate("Contaminant" = grepl("contaminants", FastaFiles)) %>%
+        dplyr::mutate("Contaminant" = grepl("contaminants", tolower(FastaFiles))) %>%
         dplyr::arrange(., desc(SummedQuantity)) %>%
         Filter(function(x) !all(is.na(x)), .) # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
       
@@ -964,6 +1036,47 @@ server = function(input, output, session){
     
   })
   
+  conv_Perseus_SpN = eventReactive(list(input$convert, input$SearchEngine == "SpN-Perseus"),{
+    
+    
+    if(input$SearchEngine == "SpN-Perseus"){
+      
+      cleaned_unimputed = APMS_SpN(df = perseusUnImputed(), spectroCond())
+      cleaned_imputed = APMS_SpN(df = perseusImputed(), spectroCond())
+      
+      
+      if(input$statsFilter == "pvalue"){
+        
+        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+        pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
+        
+        filt = map2(log_names, pvalue_names, function(x,y){
+          int = cleaned_imputed %>%
+            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+            dplyr::arrange(., desc((!!as.symbol(x))))
+        })
+      }
+      
+      if(input$statsFilter == "qvalue"){
+        
+        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+        pvalue_names = names(dplyr::select(cleaned_imputed, contains("q-value")))
+        
+        filt = map2(log_names, pvalue_names, function(x,y){
+          int = cleaned_imputed %>%
+            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+            dplyr::arrange(., desc((!!as.symbol(x))))
+        })
+      }
+      
+      lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
+      names(lst) = perseusSheetNames()
+      
+      return(lst)
+    }
+    
+  })
+  
 
   finalOut = reactive({
     
@@ -971,6 +1084,7 @@ server = function(input, output, session){
            "MQ-Perseus" = conv_Perseus_MQ(),
            "FP-Perseus" = conv_Perseus_FP(),
            "PD-Perseus" = conv_Perseus_PD(),
+           "SpN-Perseus" = conv_Perseus_SpN(),
            "Byos" = conv_Byos(),
            "Spectronaut" = conv_Spec(),
            "MIBS-SpN" = conv_MIBS_SpN())
