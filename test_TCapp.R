@@ -126,10 +126,11 @@ APMS_SpN = function(df, cond_df){
                               "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction", "PG.MolecularWeight")), 
                   contains("Difference"), contains("p-value"), contains("q-value"), ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")) %>%
     dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
-    dplyr::mutate("Contaminant" = grepl("contaminants", PG.FastaFiles)) %>%
+    dplyr::mutate("Contaminant" = grepl("C|contaminants", PG.FastaFiles)) %>%
     dplyr::rename_with(., .cols = -c(ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")), ~gsub("^.*\\.", "", .x)) %>%      
     #dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
-    dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE),0)) %>%
+    dplyr::mutate("SummedQuantity" = round(rowSums(2^across(ends_with("PG.Quantity")), na.rm=TRUE),0)) %>%
+    dplyr::mutate(MolecularWeight = round(MolecularWeight / 1000, 2)) %>%
     dplyr::rename_with(~str_replace_all(.x, "\\s+", ""), .cols = contains("[")) %>%
     #dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
     dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4)),
