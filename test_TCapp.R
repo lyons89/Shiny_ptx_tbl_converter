@@ -125,12 +125,14 @@ APMS_SpN = function(df, cond_df){
     dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.NrOfStrippedSequencesIdentified (Experiment-wide)",
                               "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction", "PG.MolecularWeight")), 
                   contains("Difference"), contains("p-value"), contains("q-value"), ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")) %>%
+    dplyr::mutate(PG.MolecularWeight = str_split(PG.MolecularWeight, ";") %>%
+                    lapply(function(x) round(as.numeric(x) / 1000, 2)) %>%
+                    sapply(function(x) paste(x, collapse = ";"))) %>%
     dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
-    dplyr::mutate("Contaminant" = grepl("C|contaminants", PG.FastaFiles)) %>%
+    dplyr::mutate("Contaminant" = grepl("contaminants", PG.FastaFiles, ignore.case = T)) %>%
     dplyr::rename_with(., .cols = -c(ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")), ~gsub("^.*\\.", "", .x)) %>%      
     #dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
     dplyr::mutate("SummedQuantity" = round(rowSums(2^across(ends_with("PG.Quantity")), na.rm=TRUE),0)) %>%
-    dplyr::mutate(MolecularWeight = round(MolecularWeight / 1000, 2)) %>%
     dplyr::rename_with(~str_replace_all(.x, "\\s+", ""), .cols = contains("[")) %>%
     #dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
     dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4)),
@@ -236,7 +238,7 @@ ui <- navbarPage("Table Converter",
                                                    choices = NULL),
                                 radioButtons("transformSpectro", "How do you want the sample quantity values",
                                              choices = c("non-transformed", "Log2", "Both"), selected = "Both"),
-                                radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue"),
+                                radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), selected = "qvalue")
                               ),
                               conditionalPanel(
                                 h3("MQ-Perseus"),
@@ -258,8 +260,7 @@ ui <- navbarPage("Table Converter",
                                           multiple = FALSE,
                                           accept = c(".txt")),
                                 radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), 
-                                             selected = "pvalue"),
-                                
+                                             selected = "pvalue")
                               ),
                               conditionalPanel(
                                 h3("PD-Perseus"),
@@ -271,8 +272,7 @@ ui <- navbarPage("Table Converter",
                                           multiple = FALSE,
                                           accept = c(".txt")),
                                 radioButtons("statsFilter", "stats value to filter on:", c("p-value" = "pvalue","q-value" = "qvalue"), 
-                                             selected = "pvalue"),
-                                
+                                             selected = "pvalue")
                               ),
                               conditionalPanel(
                                 h3("SpN-Perseus"),
