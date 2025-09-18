@@ -301,11 +301,15 @@ ui <- navbarPage("Table Converter",
                                 fileInput("SpectroConditions", "Select a Condition file:",
                                           multiple = FALSE,
                                           accept = c(".tsv")),
-                                fileInput("KinaseDatabase", "Select the Kinase Database:",
-                                          multiple = FALSE,
-                                          accept = c(".xlsx")),
-                                checkboxGroupInput("KinaseSpecies", "Choose which Species to use:",
-                                                   choices = NULL)
+                                radioButtons("AddKinaseDatabase", "Do you want to import and annotate from a kinase database: yes/no", choices = c("Yes", "No"), selected = "No"),
+                                conditionalPanel(
+                                  condition = "input.AddKinaseDatabase == 'Yes'",
+                                  fileInput("KinaseDatabase", "Select the Kinase Database:",
+                                            multiple = FALSE,
+                                            accept = c(".xlsx")),
+                                  checkboxGroupInput("KinaseSpecies", "Choose which Species to use:",
+                                                     choices = NULL)
+                                )
                               ),
                               selectInput("tab2", "Select tab to view", choices = NULL),
                               textInput("outputFileName", label = "Export file name:", value = ""),
@@ -460,13 +464,12 @@ server = function(input, output, session){
   observeEvent(kinaseDatabase(), {
 
     df = kinaseDatabase()
-    updateCheckboxGroupInput(session, "KinaseSpecies", choices = c(names(df)[4:length(df)], "None"))
+    updateCheckboxGroupInput(session, "KinaseSpecies", choices = c(names(df)[4:length(df)]))
 
   })
   
   
   observeEvent(spectroStats(), {
-    
     
     updateCheckboxGroupInput(session, "SpNcomparisons", choices = sort(unique(spectroStats()$`Comparison (group1/group2)`)))
     
@@ -952,24 +955,36 @@ server = function(input, output, session){
     # get kinase database
     # if no database is selected use the term "kinase" in the protein description column
     
-    kinasedb = kinaseDatabase()
     
-    if(input$KinaseSpecies == "None"){
+    if(input$AddKinaseDatabase == "No"){
       
       quant3 = quant2 %>%
-        mutate("Kinase.Family" = grepl("kinase", ProteinDescriptions)) %>%
+        dplyr::mutate("Kinase.Family" = grepl("kinase", ProteinDescriptions, ignore.case = TRUE)) %>%
         dplyr::relocate(., "Kinase.Family", .after = "FastaFiles")
       
     }else{
-      kinasedb = kinasedb %>%
-        dplyr::select("Human.Uniprot", `Kinase.Family`)
-      #dplyr::select(input$KinaseSpecies, `Kinase Family`)
+      kinasedb = kinaseDatabase()
       
+      if(input$KinaseSpecies == "Human.Uniprot"){
+        kinasedb = kinasedb %>%
+          dplyr::select("Human.Uniprot", `Kinase.Family`)
+      }
+      if(input$KinaseSpecies == "Mouse.Uniprot"){
+        kinasedb = kinasedb %>%
+          dplyr::select("Mouse.Uniprot", `Kinase.Family`)
+      }
+      if(input$KinaseSpecies == "Bos.taurus.Uniprot"){
+        kinasedb = kinasedb %>%
+          dplyr::select("Bos.taurus.Uniprot", `Kinase.Family`)
+      }  
       quant3 = quant2 %>%
         left_join(., kinasedb, by = c(ProteinGroups = names(kinasedb[1]))) %>%
         dplyr::relocate(., "Kinase.Family", .after = "FastaFiles")
       
     }
+    
+      
+    
     
     # filtering for kinase family members
     kinaseOnly = quant3 %>%
