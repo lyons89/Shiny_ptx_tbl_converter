@@ -940,15 +940,24 @@ server = function(input, output, session){
     # for some reason this code works when run on its own but not when run within Shiny??
 
     
-    var_names = cond_df %>%
+    new_log_names = cond_df %>%
       dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
       dplyr::mutate(num = seq(1:nrow(.))) %>%
-      dplyr::bind_rows(.,.) %>%
-      dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>% # rep names 2 times, for log2 and for non-transformed
-      dplyr::mutate(samp_names = paste0(rep(c("Log2_", ""), each = max(num)), Condition, "_", Replicate, "_Quantity")) %>%
+      dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>%
+      dplyr::mutate(samp_names = paste0("Log2_", Condition, "_", Replicate, "_Quantity")) %>%
       dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
       tibble::deframe()
-          
+    
+    new_nonlog_names = cond_df %>%
+      dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
+      dplyr::mutate(num = seq(1:nrow(.))) %>%
+      dplyr::mutate(current_names = paste0("[", num, "]", `Run Label`, ".PG.Quantity")) %>%
+      dplyr::mutate(samp_names = paste0(Condition, "_", Replicate, "_Quantity")) %>%
+      dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
+      tibble::deframe()
+    
+    var_names = c(new_log_names, new_nonlog_names)
+    
     quant2 = quant2 %>%
       dplyr::rename(!!!var_names)
       
@@ -961,6 +970,10 @@ server = function(input, output, session){
       quant3 = quant2 %>%
         dplyr::mutate("Kinase.Family" = grepl("kinase", ProteinDescriptions, ignore.case = TRUE)) %>%
         dplyr::relocate(., "Kinase.Family", .after = "FastaFiles")
+      
+      # filtering for kinase family members
+      kinaseOnly = quant3 %>%
+        dplyr::filter(grepl("TRUE", Kinase.Family, ignore.case = TRUE))
       
     }else{
       kinasedb = kinaseDatabase()
@@ -981,27 +994,23 @@ server = function(input, output, session){
         left_join(., kinasedb, by = c(ProteinGroups = names(kinasedb[1]))) %>%
         dplyr::relocate(., "Kinase.Family", .after = "FastaFiles")
       
+      # filtering for kinase family members
+      kinaseOnly = quant3 %>%
+        dplyr::filter(!is.na(Kinase.Family))
     }
-    
-      
-    
-    
-    # filtering for kinase family members
-    kinaseOnly = quant3 %>%
-      dplyr::filter(!is.na(Kinase.Family))
     
     # QC
     # I think i'll have to pivot_longer the data, will need non-log2 quant values, kinase.family, and proteingroups columns
     # then group_by(Kinase.family) %>% summarize()
     qc = quant3 %>%
-      dplyr::select(., any_of(c("ProteinGroups", "Kinase.Family")), ends_with("_Quantity")) %>%
-      tidyr::pivot_longer(col = ends_with("Quantity"), values_to = "Log2_Quant", names_to = "samples") %>%
+      dplyr::select(., any_of(c("ProteinGroups", "Kinase.Family")), starts_with("Log2_")) %>%
+      tidyr::pivot_longer(col = starts_with("Log2_"), values_to = "Log2_Quant", names_to = "samples") %>%
       dplyr::mutate(quant = 2^Log2_Quant) %>%
-      dplyr::mutate(kinase = if_else(!is.na(Kinase.Family), TRUE, FALSE)) %>%
+      dplyr::mutate(kinase = if_else(is.na(Kinase.Family) | Kinase.Family == TRUE, TRUE, FALSE)) %>%
       dplyr::group_by(samples) %>%
       dplyr::summarize(kinase_sum = sum(quant[kinase == TRUE], na.rm=TRUE),
                        total_sum = sum(quant, na.rm = TRUE),
-                       percent_enrichment = (kinase_sum / total_sum * 100))
+                       percent_enrichment = round((kinase_sum / total_sum * 100), 2))
     
 
     lst = c(list(quant3, qc, kinaseOnly))
