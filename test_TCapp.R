@@ -64,8 +64,9 @@ APMS_FP = function(df){
                   ends_with("MaxLFQ Intensity"), ends_with("Spectral Count"), -any_of(c("Combined Unique Spectral Count", "Combined Spectral Count"))) %>%
     dplyr::mutate(across(.cols = starts_with("LFQ intensity"), ~round(.x, 4)),
                   across(.cols = contains("Difference"), ~round(.x, 4))) %>%
+    dplyr::mutate(Contaminant = grepl("Cont_", `Protein ID`) & `Indistinguishable Proteins` == "") %>%
     dplyr::mutate("Summed LFQ Intensity" = round(rowSums(2^across(.cols = ends_with("MaxLFQ Intensity")), na.rm=TRUE)), 0) %>%
-    dplyr::select(., any_of(c("Protein ID", "Entry Name", "Gene", "Description" ,"Organism", "Indistinguishable Proteins", "Protein Length", 
+    dplyr::select(., any_of(c("Protein ID", "Entry Name", "Gene", "Description" ,"Contaminant", "Organism", "Indistinguishable Proteins", "Protein Length", 
                               "Combined Total Peptides", "Summed LFQ Intensity")), 
                   contains("Difference"), contains("p-value"), contains("q-value", ignore.case = FALSE), contains("Significant"), 
                   ends_with("MaxLFQ Intensity"), ends_with("Spectral Count"),
