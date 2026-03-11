@@ -922,7 +922,7 @@ server = function(input, output, session){
       dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), # unique peptides column comes from the candidates dataframe
                    ends_with("PG.Quantity")) %>%
       dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
-      dplyr::mutate("Contaminant" = grepl("contaminants", FastaFiles)) %>%
+      dplyr::mutate("Contaminant" = grepl("^(?!.*;).*Contaminants*", FastaFiles, ignore.case = TRUE, perl = TRUE)) %>%
       dplyr::arrange(., desc(SummedQuantity)) %>%
       Filter(function(x) !all(is.na(x)), .) %>% # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
       dplyr::relocate(., "Contaminant", .after = "FastaFiles") %>%
@@ -941,7 +941,7 @@ server = function(input, output, session){
       dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
       dplyr::mutate(num = seq(1:nrow(.))) %>%
       dplyr::bind_rows(.,.) %>%
-      dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>% # rep names 2 times, for log2 and for non-transformed
+      dplyr::mutate(current_names = paste0(rep(c("log2_", ""), each = max(num)), "[", num, "]", `Run Label`, ".PG.Quantity")) %>% # rep names 2 times, for log2 and for non-transformed
       dplyr::mutate(samp_names = paste0(rep(c("Log2_", ""), each = max(num)), Condition, "_", Replicate, "_Quantity")) %>%
       dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
       tibble::deframe()
