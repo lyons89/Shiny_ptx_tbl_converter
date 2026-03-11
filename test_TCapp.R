@@ -930,7 +930,8 @@ server = function(input, output, session){
       dplyr::mutate(across(.cols = matches("[PG|PTM].Quantity"), ~round(.x, 4))) %>% # round log2 values 
       dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity", "Contaminant")),
                     starts_with("log2_"), ends_with("Quantity")) %>% 
-      dplyr::arrange(., desc(SummedQuantity)) # sort by decending summed Quantity
+      dplyr::arrange(., desc(SummedQuantity)) %>% # sort by decending summed Quantity
+      dplyr::relocate(., "Contaminant", .after = "FastaFiles")
     
       
     # if condition file was added, rename the quant column to match
@@ -942,7 +943,7 @@ server = function(input, output, session){
       dplyr::mutate(num = seq(1:nrow(.))) %>%
       dplyr::bind_rows(.,.) %>%
       dplyr::mutate(current_names = paste0(rep(c("log2_", ""), each = max(num)), "[", num, "]", `Run Label`, ".PG.Quantity")) %>% # rep names 2 times, for log2 and for non-transformed
-      dplyr::mutate(samp_names = paste0(rep(c("Log2_", ""), each = max(num)), Condition, "_", Replicate, "_Quantity")) %>%
+      dplyr::mutate(samp_names = paste0(rep(c("Log2_", ""), each = max(num)), "S", rep(1:max(num), 2), "_", Condition, "_", Replicate, "_Quantity")) %>%
       dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
       tibble::deframe()
           
