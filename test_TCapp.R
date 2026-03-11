@@ -979,7 +979,7 @@ server = function(input, output, session){
     # I think i'll have to pivot_longer the data, will need non-log2 quant values, kinase.family, and proteingroups columns
     # then group_by(Kinase.family) %>% summarize()
     qc = quant3 %>%
-      dplyr::select(., any_of(c("ProteinGroups", "Kinase.Family")), ends_with("_Quantity")) %>%
+      dplyr::select(., any_of(c("ProteinGroups", "Kinase.Family")), starts_with("Log2") & ends_with("_Quantity")) %>%
       tidyr::pivot_longer(col = ends_with("Quantity"), values_to = "Log2_Quant", names_to = "samples") %>%
       dplyr::mutate(quant = 2^Log2_Quant) %>%
       dplyr::mutate(kinase = if_else(!is.na(Kinase.Family), TRUE, FALSE)) %>%
