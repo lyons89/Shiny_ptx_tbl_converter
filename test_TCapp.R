@@ -929,7 +929,7 @@ server = function(input, output, session){
       dplyr::mutate(across(.cols = matches("[PG|PTM].Quantity"), ~log2(.x), .names = "log2_{.col}"), .keep = "all") %>% # log2 transform data
       dplyr::mutate(across(.cols = matches("[PG|PTM].Quantity"), ~round(.x, 4))) %>% # round log2 values 
       dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity", "Contaminant")),
-                    starts_with("log2_"), ends_with("Quantity")) %>% 
+                    starts_with("log2_")) %>% 
       dplyr::arrange(., desc(SummedQuantity)) %>% # sort by decending summed Quantity
       dplyr::relocate(., "Contaminant", .after = "FastaFiles")
     
@@ -941,9 +941,11 @@ server = function(input, output, session){
     var_names = cond_df %>%
       dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
       dplyr::mutate(num = seq(1:nrow(.))) %>%
-      dplyr::bind_rows(.,.) %>%
-      dplyr::mutate(current_names = paste0(rep(c("log2_", ""), each = max(num)), "[", num, "]", `Run Label`, ".PG.Quantity")) %>% # rep names 2 times, for log2 and for non-transformed
-      dplyr::mutate(samp_names = paste0(rep(c("Log2_", ""), each = max(num)), "S", rep(1:max(num), 2), "_", Condition, "_", Replicate, "_Quantity")) %>%
+      #dplyr::bind_rows(.,.) 
+      dplyr::mutate(current_names = paste0("log2_", "[", num, "]", `Run Label`, ".PG.Quantity")) %>% # rep names 2 times, for log2 and for non-transformed
+      dplyr::mutate(samp_names = paste0("Log2_", "S", 1:max(num), "_", Condition, "_", Replicate, "_Quantity")) %>%
+      # dplyr::mutate(current_names = paste0(rep(c("log2_"), each = max(num)), "[", num, "]", `Run Label`, ".PG.Quantity")) %>% # rep names 2 times, for log2 and for non-transformed
+      # dplyr::mutate(samp_names = paste0(rep(c("Log2_"), each = max(num)), "S", rep(1:max(num), 2), "_", Condition, "_", Replicate, "_Quantity")) %>%
       dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
       tibble::deframe()
           
@@ -958,8 +960,19 @@ server = function(input, output, session){
     if(input$KinaseSpecies == "None"){
       
       quant3 = quant2 %>%
-        mutate("Kinase.Family" = grepl("kinase", ProteinDescriptions)) %>%
+        mutate("Kinase.Family" = grepl("kinase", ProteinDescriptions, ignore.case = TRUE)) %>%
         dplyr::relocate(., "Kinase.Family", .after = "FastaFiles")
+      
+      # QC
+      qc = quant3 %>%
+        dplyr::select(., any_of(c("ProteinGroups", "Kinase.Family")), starts_with("Log2") & ends_with("_Quantity")) %>%
+        tidyr::pivot_longer(col = ends_with("Quantity"), values_to = "Log2_Quant", names_to = "samples") %>%
+        dplyr::mutate(quant = 2^Log2_Quant) %>% 
+        dplyr::group_by(samples) %>%
+        dplyr::summarize(kinase_sum = sum(quant[Kinase.Family == TRUE], na.rm=TRUE),
+                         total_sum = sum(quant, na.rm = TRUE),
+                         percent_enrichment = (kinase_sum / total_sum * 100))
+      
       
     }else{
       kinasedb = kinasedb %>%
@@ -970,26 +983,23 @@ server = function(input, output, session){
         left_join(., kinasedb, by = c(ProteinGroups = names(kinasedb[1]))) %>%
         dplyr::relocate(., "Kinase.Family", .after = "FastaFiles")
       
+      # QC
+      qc = quant3 %>%
+        dplyr::select(., any_of(c("ProteinGroups", "Kinase.Family")), starts_with("Log2") & ends_with("_Quantity")) %>%
+        tidyr::pivot_longer(col = ends_with("Quantity"), values_to = "Log2_Quant", names_to = "samples") %>%
+        dplyr::mutate(quant = 2^Log2_Quant) %>%
+        dplyr::mutate(kinase = !is.na(Kinase.Family)) %>% 
+        dplyr::group_by(samples) %>%
+        dplyr::summarize(kinase_sum = round(sum(quant[kinase == TRUE], na.rm=TRUE),2),
+                         total_sum = round(sum(quant, na.rm = TRUE),2),
+                         percent_enrichment = round((kinase_sum / total_sum * 100)),2)
+      
     }
     
     # filtering for kinase family members
     kinaseOnly = quant3 %>%
       dplyr::filter(!is.na(Kinase.Family))
     
-    # QC
-    # I think i'll have to pivot_longer the data, will need non-log2 quant values, kinase.family, and proteingroups columns
-    # then group_by(Kinase.family) %>% summarize()
-    qc = quant3 %>%
-      dplyr::select(., any_of(c("ProteinGroups", "Kinase.Family")), starts_with("Log2") & ends_with("_Quantity")) %>%
-      tidyr::pivot_longer(col = ends_with("Quantity"), values_to = "Log2_Quant", names_to = "samples") %>%
-      dplyr::mutate(quant = 2^Log2_Quant) %>%
-      dplyr::mutate(kinase = if_else(!is.na(Kinase.Family), TRUE, FALSE)) %>%
-      dplyr::group_by(samples) %>%
-      dplyr::summarize(kinase_sum = sum(quant[kinase == TRUE], na.rm=TRUE),
-                       total_sum = sum(quant, na.rm = TRUE),
-                       percent_enrichment = (kinase_sum / total_sum * 100))
-    
-
     lst = c(list(quant3, qc, kinaseOnly))
     names(lst) = MIBsSpNSheetNames()
     
