@@ -992,7 +992,7 @@ server = function(input, output, session){
         dplyr::group_by(samples) %>%
         dplyr::summarize(kinase_sum = round(sum(quant[kinase == TRUE], na.rm=TRUE),2),
                          total_sum = round(sum(quant, na.rm = TRUE),2),
-                         percent_enrichment = round((kinase_sum / total_sum * 100)),2)
+                         percent_enrichment = round((kinase_sum / total_sum * 100),2))
       
     }
     
