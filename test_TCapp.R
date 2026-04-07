@@ -56,6 +56,8 @@ APMS_MQ = function(df){
 }
 
 APMS_FP = function(df){
+
+  most_common_organism <- names(which.max(table(df$Organism[df$Organism != ""])))
   
   df %>%
     dplyr::select(., any_of(c("Protein ID", "Entry Name", "Gene", "Description" ,"Organism", "Indistinguishable Proteins", "Protein Length", 
@@ -67,7 +69,8 @@ APMS_FP = function(df){
     dplyr::mutate("Summed LFQ Intensity" = round(rowSums(2^across(.cols = ends_with("MaxLFQ Intensity")), na.rm=TRUE)), 0) %>%
     dplyr::mutate(Contaminants = case_when(
       Organism == "" ~ FALSE,
-      Organism == names(which.max(table(Organism))) ~ FALSE,
+      Organism == most_common_organism ~ FALSE,
+      nzchar(`Indistinguishable Proteins`) ~ FALSE,
       TRUE ~ TRUE)) %>%
     dplyr::select(., any_of(c("Protein ID", "Entry Name", "Gene", "Description", "Contaminants",  "Organism", "Indistinguishable Proteins", "Protein Length", 
                               "Combined Total Peptides", "Summed LFQ Intensity")), 
