@@ -70,7 +70,9 @@ APMS_FP = function(df){
     dplyr::mutate(Contaminants = case_when(
       Organism == "" ~ FALSE,
       Organism == most_common_organism ~ FALSE,
-      nzchar(`Indistinguishable Proteins`) ~ FALSE,
+      !is.na(`Indistinguishable Proteins`) &
+      nzchar(`Indistinguishable Proteins`) &
+      `Indistinguishable Proteins` != "#N/A"~ FALSE,
       TRUE ~ TRUE)) %>%
     dplyr::select(., any_of(c("Protein ID", "Entry Name", "Gene", "Description", "Contaminants",  "Organism", "Indistinguishable Proteins", "Protein Length", 
                               "Combined Total Peptides", "Summed LFQ Intensity")), 
