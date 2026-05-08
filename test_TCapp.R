@@ -1,33 +1,21 @@
 # Load Packages ---
 
-if(!require(markdown)){
-  install.packages("markdown")
-  library(markdown)
+#.libPaths(c("/datastore/lbcfs/labs/proteomics/Rserver/Table_Converter", .libPaths()))
+
+# ── Package installer function ────────────────────────────────────────────────
+install_if_missing = function(pkg){
+  if(!require(pkg, character.only = TRUE)){
+    install.packages(pkg, lib = .libPaths()[1])   # explicitly installs to your lab directory
+    library(pkg, character.only = TRUE)
+  }
 }
 
-if(!require(shiny)){
-  install.packages("shiny")
-  library(shiny)
-}
-
-if(!require(tidyverse)){
-  install.packages("tidyverse")
-  library(tidyverse)
-}
-
-if(!require(openxlsx)){
-  install.packages("openxlsx")
-  library(openxlsx)
-}
-
-if(!require(DT)){
-  install.packages("DT")
-  library(DT)
-}
-if(!require(vroom)){
-  install.packages("vroom")
-  library(vroom)
-}
+install_if_missing("markdown")
+install_if_missing("shiny")
+install_if_missing("tidyverse")
+install_if_missing("openxlsx")
+install_if_missing("DT")
+install_if_missing("vroom")
 
 
 # Functions
@@ -79,6 +67,9 @@ APMS_FP = function(df){
                   contains("Difference"), contains("p-value"), contains("q-value", ignore.case = FALSE), contains("Significant"), 
                   ends_with("MaxLFQ Intensity"), ends_with("Spectral Count"),
                   -contains("significant", ignore.case=FALSE)) %>%
+    dplyr::rename_with(~gsub("^Student's T-test Difference", "Log2FC", .x), starts_with("Student's T-test Difference")) %>%
+    dplyr::rename_with(~gsub("^Student's T-test p-value", "p-value", .x), starts_with("Student's T-test p-value")) %>%
+    dplyr::rename_with(~gsub("^Student's T-test q-value", "q-value", .x), starts_with("Student's T-test q-value")) %>%
     dplyr::arrange(.,desc(`Summed LFQ Intensity`))
   
   
@@ -427,12 +418,12 @@ server = function(input, output, session){
   })
   
   perseusSheetNames = reactive({
-    df = perseusImputed()
-    
-    tabNames = str_replace_all(str_remove_all(names(dplyr::select(df, contains("p-value"))), "Student's T-test p-value "), 
-                               pattern = "_", replacement = " v ")
-    
-    tab_names = paste0("comp_", 1:length(tabNames))
+    # df = perseusImputed()
+    # 
+    # tabNames = str_replace_all(str_remove_all(names(dplyr::select(df, contains("p-value"))), "Student's T-test p-value "), 
+    #                            pattern = "_", replacement = " v ")
+    # 
+    # tab_names = paste0("comp_", 1:length(tabNames))
     
     # truncate_to_30 <- function(strings) {
     #   sapply(strings, function(x) {
@@ -448,7 +439,8 @@ server = function(input, output, session){
     
     # tabNames = remove_common_words(tabNames)
     
-    tabnames = c("Unimputed", "Imputed", tab_names)
+    #tabnames = c("Unimputed", "Imputed", tab_names)
+    tabnames = c("Unimputed", "Imputed")
     
   })
   
@@ -869,31 +861,35 @@ server = function(input, output, session){
       cleaned_imputed = APMS_FP(df = perseusImputed())
       
       
-      if(input$statsFilter == "pvalue"){
-        
-        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
-        pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
-        
-        filt = map2(log_names, pvalue_names, function(x,y){
-          int = cleaned_imputed %>%
-            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
-            dplyr::arrange(., desc((!!as.symbol(x))))
-        })
-      }
+      # if(input$statsFilter == "pvalue"){
+      #   
+      #   log_names = names(dplyr::select(cleaned_imputed, starts_with("Log2FC")))
+      #   pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
+      #   
+      #   filt = map2(log_names, pvalue_names, function(x,y){
+      #     int = cleaned_imputed %>%
+      #       dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+      #       dplyr::arrange(., desc((!!as.symbol(x))))
+      #   })
+      # }
+      # 
+      # if(input$statsFilter == "qvalue"){
+      #   
+      #   log_names = names(dplyr::select(cleaned_imputed, starts_with("Log2FC")))
+      #   pvalue_names = names(dplyr::select(cleaned_imputed, contains("q-value")))
+      #   
+      #   filt = map2(log_names, pvalue_names, function(x,y){
+      #     int = cleaned_imputed %>%
+      #       dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+      #       dplyr::arrange(., desc((!!as.symbol(x))))
+      #   })
+      # }
       
-      if(input$statsFilter == "qvalue"){
-        
-        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
-        pvalue_names = names(dplyr::select(cleaned_imputed, contains("q-value")))
-        
-        filt = map2(log_names, pvalue_names, function(x,y){
-          int = cleaned_imputed %>%
-            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
-            dplyr::arrange(., desc((!!as.symbol(x))))
-        })
-      }
+      # lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
+      # names(lst) = perseusSheetNames()
       
-      lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
+      
+      lst = c(list(cleaned_unimputed, cleaned_imputed))
       names(lst) = perseusSheetNames()
       
       return(lst)
