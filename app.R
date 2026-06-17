@@ -98,20 +98,27 @@ APMS_PD = function(df){
   
   
   tmp = df %>%
-    dplyr::select(., any_of(c("Accession", "Description", "Contaminant", "Modifications", "Coverage [%]", 
+    dplyr::select(., any_of(c("Accession", "Description", "Contaminant", 
+                              "Biological Process", "Cellular Component", "Molecular Function",  
+                              "Modifications", "Coverage [%]", 
                               "# PSMs", "# Peptides", "# Unique Peptides", "# AAs",  "MW [kDa]")), 
                   contains("Difference"), contains("p-value"), contains("q-value", ignore.case = FALSE), contains("Significant"), 
-                  starts_with("Abundance:")) %>%
-    dplyr::mutate(across(.cols = starts_with("Abundance:"), ~round(.x, 4)),
+                  starts_with("Abundances (Normalized):")) %>%
+    dplyr::mutate(across(.cols = starts_with("Abundances (Normalized):"), ~round(.x, 4)),
                   across(.cols = contains("Difference"), ~round(.x, 4))) %>%
     dplyr::mutate(Gene = unlist(purrr::map(.$Description, ~extract_GN_values(.x)))) %>% # this can extract all gene names from multiple description columns
-    dplyr::mutate("SummedAbundance" = round(rowSums(2^across(.cols = starts_with("Abundance:")), na.rm=TRUE)), 0) %>%
-    dplyr::select(., any_of(c("Accession", "Description", "Gene", "Contaminant", "Modifications", "Coverage [%]",
+    dplyr::mutate("SummedAbundance" = round(rowSums(2^across(.cols = starts_with("Abundances (Normalized):")), na.rm=TRUE)), 0) %>%
+    dplyr::select(., any_of(c("Accession", "Description", "Gene", "Contaminant", "Biological Process", "Cellular Component",
+                              "Molecular Function", "Modifications", "Coverage [%]",
                               "# PSMs", "# Peptides", "# Unique Peptides", "# AAs",  "MW [kDa]", "SummedAbundance")),
-                  contains("Difference"), contains("p-value"), contains("q-value"), contains("Significant"), starts_with("Abundance:"),
+                  contains("Difference"), contains("p-value"), contains("q-value"), contains("Significant"), starts_with("Abundances (Normalized):"),
                   -contains("significant", ignore.case=FALSE)) %>%
+    dplyr::rename_with(~gsub("^Student's T-test Difference", "Log2FC", .x), starts_with("Student's T-test Difference")) %>%
+    dplyr::rename_with(~gsub("^Student's T-test p-value", "p-value", .x), starts_with("Student's T-test p-value")) %>%
+    dplyr::rename_with(~gsub("^Student's T-test q-value", "q-value", .x), starts_with("Student's T-test q-value")) %>%
     dplyr::arrange(.,desc(SummedAbundance))
   
+  return(tmp)
   
 }
 
@@ -1020,31 +1027,31 @@ server = function(input, output, session){
       cleaned_imputed = APMS_PD(df = perseusImputed())
       
       
-      if(input$statsFilter == "pvalue"){
-        
-        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
-        pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
-        
-        filt = map2(log_names, pvalue_names, function(x,y){
-          int = cleaned_imputed %>%
-            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
-            dplyr::arrange(., desc((!!as.symbol(x))))
-        })
-      }
+      # if(input$statsFilter == "pvalue"){
+      #   
+      #   log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+      #   pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
+      #   
+      #   filt = map2(log_names, pvalue_names, function(x,y){
+      #     int = cleaned_imputed %>%
+      #       dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+      #       dplyr::arrange(., desc((!!as.symbol(x))))
+      #   })
+      # }
+      # 
+      # if(input$statsFilter == "qvalue"){
+      #   
+      #   log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+      #   pvalue_names = names(dplyr::select(cleaned_imputed, contains("q-value")))
+      #   
+      #   filt = map2(log_names, pvalue_names, function(x,y){
+      #     int = cleaned_imputed %>%
+      #       dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+      #       dplyr::arrange(., desc((!!as.symbol(x))))
+      #   })
+      # }
       
-      if(input$statsFilter == "qvalue"){
-        
-        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
-        pvalue_names = names(dplyr::select(cleaned_imputed, contains("q-value")))
-        
-        filt = map2(log_names, pvalue_names, function(x,y){
-          int = cleaned_imputed %>%
-            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
-            dplyr::arrange(., desc((!!as.symbol(x))))
-        })
-      }
-      
-      lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
+      lst = c(list(cleaned_unimputed, cleaned_imputed))
       names(lst) = perseusSheetNames()
       
       return(lst)
