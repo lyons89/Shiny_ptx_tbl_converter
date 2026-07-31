@@ -910,15 +910,7 @@ server = function(input, output, session){
     quant_df = spectroQuant()
     cond_df = spectroCond()
     
-    # stats2 = stats_df %>% # remember this data is in the long format until the end when i pivot_wider
-    #   #dplyr::filter(., if_any(matches("Valid"), ~Valid == TRUE)) %>% # if the valid column exists, filter it for only true values
-    #   dplyr::select(., comparison = starts_with("Comparison"), Group,
-    #                 log2FC = `AVG Log2 Ratio`) %>%
-    #   #dplyr::filter(., comparison %in% input$SpNcomparisons) %>%
-    #   #dplyr::filter(!grepl("pool", tolower(comparison))) %>% # remove comparisons that contain the word "pool", should not need now with SpNcomparisons
-    #   tidyr::pivot_wider(., names_from = comparison, values_from = c(log2FC))
-    
-    
+
     report_column_names_keep = c("ProteinGroups", "ProteinNames", "Genes", "ProteinDescriptions","FastaFiles", "FastaHeaders",
                                  "CellularComponent", "BiologicalProcess", "MolecularFunction", "UniquePeptides")
     
