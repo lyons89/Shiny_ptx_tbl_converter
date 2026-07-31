@@ -977,6 +977,10 @@ server = function(input, output, session){
                          total_sum = sum(quant, na.rm = TRUE),
                          percent_enrichment = (kinase_sum / total_sum * 100))
       
+      kinaseOnly = quant3 %>%
+        dplyr::filter(Kinase.Family == TRUE)
+      
+      
       
     }else{
       kinasedb = kinasedb %>%
@@ -998,11 +1002,12 @@ server = function(input, output, session){
                          total_sum = round(sum(quant, na.rm = TRUE),2),
                          percent_enrichment = round((kinase_sum / total_sum * 100),2))
       
+      kinaseOnly = quant3 %>%
+        dplyr::filter(!is.na(Kinase.Family))
+      
     }
     
     # filtering for kinase family members
-    kinaseOnly = quant3 %>%
-      dplyr::filter(!is.na(Kinase.Family))
     
     lst = c(list(quant3, qc, kinaseOnly))
     names(lst) = MIBsSpNSheetNames()
