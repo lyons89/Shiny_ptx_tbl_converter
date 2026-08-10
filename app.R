@@ -2,20 +2,13 @@
 
 #.libPaths(c("/datastore/lbcfs/labs/proteomics/Rserver/Table_Converter", .libPaths()))
 
-# ── Package installer function ────────────────────────────────────────────────
-install_if_missing = function(pkg){
-  if(!require(pkg, character.only = TRUE)){
-    install.packages(pkg, lib = .libPaths()[1])   # explicitly installs to your lab directory
-    library(pkg, character.only = TRUE)
-  }
-}
 
-install_if_missing("markdown")
-install_if_missing("shiny")
-install_if_missing("tidyverse")
-install_if_missing("openxlsx")
-install_if_missing("DT")
-install_if_missing("vroom")
+library("markdown")
+library("shiny")
+library("tidyverse")
+library("openxlsx")
+library("DT")
+library("vroom")
 
 
 # Functions
@@ -132,52 +125,84 @@ APMS_SpN = function(df, cond_df){
     dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.NrOfStrippedSequencesIdentified (Experiment-wide)",
                               "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction", "PG.MolecularWeight")), 
                   contains("Difference"), contains("p-value"), contains("q-value"), ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")) %>%
-    dplyr::mutate(PG.MolecularWeight = str_split(PG.MolecularWeight, ";") %>%
-                    lapply(function(x) round(as.numeric(x) / 1000, 2)) %>%
-                    sapply(function(x) paste(x, collapse = ";"))) %>%
-    dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
-    dplyr::mutate("Contaminant" = grepl("contaminants", PG.FastaFiles, ignore.case = T)) %>%
-    dplyr::rename_with(., .cols = -c(ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")), ~gsub("^.*\\.", "", .x)) %>%      
-    #dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
+    { if ("PG.MolecularWeight" %in% names(.)){
+      dplyr::mutate(., PG.MolecularWeight = str_split(PG.MolecularWeight, ";") %>%
+                      lapply(function(x) round(as.numeric(x) / 1000, 2)) %>%
+                      sapply(function(x) paste(x, collapse = ";")))
+      } else . 
+    } %>%
+      dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
+    { if ("PG.FastaFiles" %in% names(.)){
+      dplyr::mutate(., "Contaminant" = grepl("contaminants", PG.FastaFiles, ignore.case = T))
+      } else . 
+    } %>%
+    { if (any(endsWith(names(.), "PG.RunEvidenceCount"))){
+      dplyr::rename_with(., .cols = -c(ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")), ~gsub("^.*\\.", "", .x))  
+    } else . } %>%
     dplyr::mutate("SummedQuantity" = round(rowSums(2^across(ends_with("PG.Quantity")), na.rm=TRUE),0)) %>%
     dplyr::rename_with(~str_replace_all(.x, "\\s+", ""), .cols = contains("[")) %>%
+    dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
     #dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
     dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4)),
                   across(.cols = contains("Difference"), ~round(.x, 4))) %>%
     dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), # unique peptides column comes from the candidates dataframe
                   contains("Difference"), contains("p-value"), contains("q-value"), ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")) %>%
     dplyr::arrange(., desc(SummedQuantity)) %>%
+    dplyr::rename_with(~gsub("^Student's T-test Difference", "Log2FC", .x), starts_with("Student's T-test Difference")) %>%
+    dplyr::rename_with(~gsub("^Student's T-test p-value", "p-value", .x), starts_with("Student's T-test p-value")) %>%
+    dplyr::rename_with(~gsub("^Student's T-test q-value", "q-value", .x), starts_with("Student's T-test q-value")) %>%
     Filter(function(x) !all(is.na(x)), .) # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
   
+  
   # This replaces the SpN default names which are the raw file names, with those that you put in the Condition Setup 
-  clean_names = function(cond_df){
+
+  clean_names <- function(cond_df, df2){
     
-    new_quant_names = cond_df %>%
-      dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
-      dplyr::mutate(num = seq(1:nrow(.))) %>%
-      dplyr::mutate(current_names = paste0("[", num, "]", `Run Label`, ".PG.Quantity")) %>%
-      dplyr::mutate(samp_names = paste0(Condition, "_", Replicate, "_Quantity")) %>%
-      dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
-      tibble::deframe()
+    lookup <- cond_df %>%
+      dplyr::mutate(
+        new_quantity =
+          paste0("Log2","_", Condition, "_", Replicate, "_Quantity"),
+        new_evidence =
+          paste0(Condition, "_", Replicate, "_RunEvidenceCount")
+      )
     
-    RunEvidence_names = cond_df %>%
-      dplyr::select(., any_of(c("Run Label", "Condition", "Replicate"))) %>%
-      dplyr::mutate(num = seq(1:nrow(.))) %>%
-      dplyr::mutate(current_names = paste0("[", num, "]", `Run Label`, ".PG.RunEvidenceCount")) %>%
-      dplyr::mutate(samp_names = paste0(Condition, "_", Replicate, "_RunEvidenceCount")) %>%
-      dplyr::select(., all_of(c("samp_names", "current_names"))) %>%
-      tibble::deframe()
+    rename_vec <- c()
     
+    for(col in names(df2)){
+      
+      hit <- which(
+        vapply(
+          lookup$`Run Label`,
+          function(x) grepl(x, col, fixed = TRUE),
+          logical(1)
+        )
+      )
+      
+      if(length(hit) == 1){
+        
+        if(grepl("PG\\.Quantity$", col)){
+          rename_vec[ lookup$new_quantity[hit] ] <- col
+        }
+        
+        if(grepl("PG\\.RunEvidenceCount$", col)){
+          rename_vec[ lookup$new_evidence[hit] ] <- col
+        }
+      }
+    }
     
-    var_names = c(new_quant_names, RunEvidence_names)
-    
+    rename_vec
   }
   
-  new_names = clean_names(cond_df)
+  new_names <- clean_names(cond_df, df2)
   
-  df2 = df2 %>%
-    dplyr::rename(!!!new_names)
+  df2 <- df2 %>%
+    rename(!!!new_names)
   
+  # new_names = new_names[new_names %in% names(df2)]
+  # 
+  # df2 = df2 %>%
+  #   dplyr::rename(!!!setNames(names(new_names), new_names))
+  # 
   return(df2)
 }
 
@@ -425,28 +450,26 @@ server = function(input, output, session){
   })
   
   perseusSheetNames = reactive({
-    # df = perseusImputed()
+    #  df = perseusImputed()
     # 
-    # tabNames = str_replace_all(str_remove_all(names(dplyr::select(df, contains("p-value"))), "Student's T-test p-value "), 
-    #                            pattern = "_", replacement = " v ")
+    #  tabNames = str_replace_all(str_remove_all(names(dplyr::select(df, contains("p-value"))), "Student's T-test p-value "),
+    #                             pattern = "_", replacement = " v ")
     # 
-    # tab_names = paste0("comp_", 1:length(tabNames))
-    
-    # truncate_to_30 <- function(strings) {
-    #   sapply(strings, function(x) {
-    #     if (nchar(x) > 30) {
-    #       substr(x, 1, 30)
-    #     } else {
-    #       x
-    #     }
-    #   }, USE.NAMES = FALSE)
-    # }
+    #  tab_names = paste0("comp_", 1:length(tabNames))
+    # 
+    #  truncate_to_30 <- function(strings) {
+    #    sapply(strings, function(x) {
+    #      if (nchar(x) > 30) {
+    #        substr(x, 1, 30)
+    #      } else {
+    #        x
+    #      }
+    #    }, USE.NAMES = FALSE)
+    #  }
     # 
     # tabnames = truncate_to_30(tabNames)
-    
-    # tabNames = remove_common_words(tabNames)
-    
-    #tabnames = c("Unimputed", "Imputed", tab_names)
+    # 
+    # tabnames = c("Unimputed", "Imputed", tab_names)
     tabnames = c("Unimputed", "Imputed")
     
   })
@@ -1065,31 +1088,32 @@ server = function(input, output, session){
       cleaned_imputed = APMS_SpN(df = perseusImputed(), spectroCond())
       
       
-      if(input$statsFilter == "pvalue"){
-        
-        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
-        pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
-        
-        filt = map2(log_names, pvalue_names, function(x,y){
-          int = cleaned_imputed %>%
-            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
-            dplyr::arrange(., desc((!!as.symbol(x))))
-        })
-      }
+      # if(input$statsFilter == "pvalue"){
+      #   
+      #   log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+      #   pvalue_names = names(dplyr::select(cleaned_imputed, contains("p-value")))
+      #   
+      #   filt = map2(log_names, pvalue_names, function(x,y){
+      #     int = cleaned_imputed %>%
+      #       dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+      #       dplyr::arrange(., desc((!!as.symbol(x))))
+      #   })
+      # }
+      # 
+      # if(input$statsFilter == "qvalue"){
+      #   
+      #   log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
+      #   pvalue_names = names(dplyr::select(cleaned_imputed, contains("q-value")))
+      #   
+      #   filt = map2(log_names, pvalue_names, function(x,y){
+      #     int = cleaned_imputed %>%
+      #       dplyr::filter(., !!as.symbol(y) < 0.05) %>%
+      #       dplyr::arrange(., desc((!!as.symbol(x))))
+      #   })
+      # }
       
-      if(input$statsFilter == "qvalue"){
-        
-        log_names = names(dplyr::select(cleaned_imputed, contains("Difference")))
-        pvalue_names = names(dplyr::select(cleaned_imputed, contains("q-value")))
-        
-        filt = map2(log_names, pvalue_names, function(x,y){
-          int = cleaned_imputed %>%
-            dplyr::filter(., !!as.symbol(y) < 0.05) %>%
-            dplyr::arrange(., desc((!!as.symbol(x))))
-        })
-      }
-      
-      lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
+      lst = c(list(cleaned_unimputed, cleaned_imputed))
+      # lst = c(list(cleaned_unimputed, cleaned_imputed), filt)
       names(lst) = perseusSheetNames()
       
       return(lst)
@@ -1126,6 +1150,7 @@ server = function(input, output, session){
       paste0(format(Sys.time(),'%Y%m%d'), "_", input$outputFileName, "_Results.xlsx" )
     },
     content = function(file){
+      
       hs = createStyle(textDecoration = "Bold", wrapText = TRUE)
       write.xlsx(finalOut(), file,
                  sheetName = finalSheetnames(), overwrite = TRUE, headerStyle = hs, keepNA = TRUE)
