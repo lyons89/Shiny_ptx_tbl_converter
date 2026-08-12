@@ -612,7 +612,7 @@ server = function(input, output, session){
         dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.NrOfStrippedSequencesIdentified (Experiment-wide)",
                                   "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PG.Quantity")) %>%
         dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
-        dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
+        dplyr::rename_with(.cols = !ends_with("PG.Quantity"), ~sub("^PG\\.", "", .x)) %>%
         dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
         dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE)),0) %>%
         dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
@@ -638,7 +638,7 @@ server = function(input, output, session){
                                   "PTM.CollapseKey", "PTM.Multiplicity", "PTM.ModificationTitle", "PTM.SiteAA", "PTM.SiteLocation", "PTM.FlankingRegion",
                                   "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PTM.Quantity")) %>%
         #dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
-        dplyr::rename_with(., .cols = !ends_with("PTM.Quantity"), ~gsub("^.*\\.", "", .x)) %>%   # removes everything before . in column names, except quant values   
+        dplyr::rename_with(.cols = !ends_with("PG.Quantity"), ~sub("^PG\\.", "", .x)) %>% # removes everything before . in column names, except quant values   
         dplyr::select(., any_of(report_column_names_keep), ends_with("PTM.Quantity")) %>%
         dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PTM.Quantity")), na.rm=TRUE)),0) %>%
         dplyr::mutate(across(.cols = ends_with("PTM.Quantity"), ~round(.x, 4))) %>%
@@ -941,7 +941,7 @@ server = function(input, output, session){
       dplyr::select(., any_of(c("PG.ProteinGroups", "PG.ProteinNames", "PG.Genes", "PG.ProteinDescriptions", "PG.FastaFiles", "PG.NrOfStrippedSequencesIdentified (Experiment-wide)",
                                 "PG.FastaHeaders", "PG.CellularComponent", "PG.BiologicalProcess", "PG.MolecularFunction")), ends_with("PG.Quantity")) %>%
       dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
-      dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
+      dplyr::rename_with(.cols = !ends_with("PG.Quantity"), ~sub("^PG\\.", "", .x)) %>%
       dplyr::select(., any_of(report_column_names_keep), ends_with("PG.Quantity")) %>%
       dplyr::mutate("SummedQuantity" = round(rowSums(across(ends_with("PG.Quantity")), na.rm=TRUE)),0) %>%
       dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4))) %>%
