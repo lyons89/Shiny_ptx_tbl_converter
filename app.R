@@ -141,7 +141,7 @@ APMS_SpN = function(df, cond_df){
     } else . } %>%
     dplyr::mutate("SummedQuantity" = round(rowSums(2^across(ends_with("PG.Quantity")), na.rm=TRUE),0)) %>%
     dplyr::rename_with(~str_replace_all(.x, "\\s+", ""), .cols = contains("[")) %>%
-    dplyr::rename_with(., .cols = !ends_with("PG.Quantity"), ~gsub("^.*\\.", "", .x)) %>%      
+    dplyr::rename_with(.cols = !ends_with("PG.Quantity"), ~sub("^PG\\.", "", .x)) %>%
     #dplyr::rename_all(~str_replace_all(., "\\s+", "")) %>%
     dplyr::mutate(across(.cols = ends_with("PG.Quantity"), ~round(.x, 4)),
                   across(.cols = contains("Difference"), ~round(.x, 4))) %>%
