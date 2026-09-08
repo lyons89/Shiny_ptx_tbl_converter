@@ -60,9 +60,9 @@ APMS_FP = function(df){
                   contains("Difference"), contains("p-value"), contains("q-value", ignore.case = FALSE), contains("Significant"), 
                   ends_with("MaxLFQ Intensity"), ends_with("Spectral Count"),
                   -contains("significant", ignore.case=FALSE)) %>%
-    dplyr::rename_with(~gsub("^Student's|Welch's T-test Difference", "Log2FC", .x), matches("Student's|Welch's T-test Difference")) %>%
-    dplyr::rename_with(~gsub("^Student's|Welch's T-test p-value", "p-value", .x), matches("Student's|Welch's T-test p-value")) %>%
-    dplyr::rename_with(~gsub("^Student's|Welch's T-test q-value", "q-value", .x), matches("Student's|Welch's T-test q-value")) %>%
+    dplyr::rename_with(~gsub("^(Student's|Welch's) T-test Difference", "Log2FC", .x), matches("(Student's|Welch's) T-test Difference")) %>%
+    dplyr::rename_with(~gsub("^(Student's|Welch's) T-test p-value", "p-value", .x), matches("(Student's|Welch's) T-test p-value")) %>%
+    dplyr::rename_with(~gsub("^(Student's|Welch's) T-test q-value", "q-value", .x), matches("(Student's|Welch's) T-test q-value")) %>%
     dplyr::arrange(.,desc(`Summed LFQ Intensity`))
   
   
