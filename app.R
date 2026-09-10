@@ -106,9 +106,9 @@ APMS_PD = function(df){
                               "# PSMs", "# Peptides", "# Unique Peptides", "# AAs",  "MW [kDa]", "SummedAbundance")),
                   contains("Difference"), contains("p-value"), contains("q-value"), contains("Significant"), starts_with("Abundances (Normalized):"),
                   -contains("significant", ignore.case=FALSE)) %>%
-    dplyr::rename_with(~gsub("^Student's T-test Difference", "Log2FC", .x), starts_with("Student's T-test Difference")) %>%
-    dplyr::rename_with(~gsub("^Student's T-test p-value", "p-value", .x), starts_with("Student's T-test p-value")) %>%
-    dplyr::rename_with(~gsub("^Student's T-test q-value", "q-value", .x), starts_with("Student's T-test q-value")) %>%
+    dplyr::rename_with(~gsub("^(Student's|Welch's) T-test Difference", "Log2FC", .x), matches("(Student's|Welch's) T-test Difference")) %>%
+    dplyr::rename_with(~gsub("^(Student's|Welch's) T-test p-value", "p-value", .x), matches("(Student's|Welch's) T-test p-value")) %>%
+    dplyr::rename_with(~gsub("^(Student's|Welch's) T-test q-value", "q-value", .x), matches("(Student's|Welch's) T-test q-value")) %>%
     dplyr::arrange(.,desc(SummedAbundance))
   
   return(tmp)
@@ -148,9 +148,9 @@ APMS_SpN = function(df, cond_df){
     dplyr::select(., any_of(c(report_column_names_keep, "SummedQuantity")), # unique peptides column comes from the candidates dataframe
                   contains("Difference"), contains("p-value"), contains("q-value"), ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")) %>%
     dplyr::arrange(., desc(SummedQuantity)) %>%
-    dplyr::rename_with(~gsub("^Student's T-test Difference", "Log2FC", .x), starts_with("Student's T-test Difference")) %>%
-    dplyr::rename_with(~gsub("^Student's T-test p-value", "p-value", .x), starts_with("Student's T-test p-value")) %>%
-    dplyr::rename_with(~gsub("^Student's T-test q-value", "q-value", .x), starts_with("Student's T-test q-value")) %>%
+    dplyr::rename_with(~gsub("^(Student's|Welch's) T-test Difference", "Log2FC", .x), matches("(Student's|Welch's) T-test Difference")) %>%
+    dplyr::rename_with(~gsub("^(Student's|Welch's) T-test p-value", "p-value", .x), matches("(Student's|Welch's) T-test p-value")) %>%
+    dplyr::rename_with(~gsub("^(Student's|Welch's) T-test q-value", "q-value", .x), matches("(Student's|Welch's) T-test q-value")) %>%
     Filter(function(x) !all(is.na(x)), .) # removes any columns that only contain NA's, mostly used for GO term columns that are empty.
   
   
