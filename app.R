@@ -96,7 +96,7 @@ APMS_PD = function(df){
                               "Modifications", "Coverage [%]", 
                               "# PSMs", "# Peptides", "# Unique Peptides", "# AAs",  "MW [kDa]")), 
                   contains("Difference"), contains("p-value"), contains("q-value", ignore.case = FALSE), contains("Significant"), 
-                  starts_with("Abundances (Normalized):")) %>%
+                  starts_with("Abundances (Normalized):"), starts_with("Abundances Count:")) %>%
     dplyr::mutate(across(.cols = starts_with("Abundances (Normalized):"), ~round(.x, 4)),
                   across(.cols = contains("Difference"), ~round(.x, 4))) %>%
     dplyr::mutate(Gene = unlist(purrr::map(.$Description, ~extract_GN_values(.x)))) %>% # this can extract all gene names from multiple description columns
@@ -104,7 +104,7 @@ APMS_PD = function(df){
     dplyr::select(., any_of(c("Accession", "Description", "Gene", "Contaminant", "Biological Process", "Cellular Component",
                               "Molecular Function", "Modifications", "Coverage [%]",
                               "# PSMs", "# Peptides", "# Unique Peptides", "# AAs",  "MW [kDa]", "SummedAbundance")),
-                  contains("Difference"), contains("p-value"), contains("q-value"), contains("Significant"), starts_with("Abundances (Normalized):"),
+                  contains("Difference"), contains("p-value"), contains("q-value"), contains("Significant"), starts_with("Abundances (Normalized):"), starts_with("Abundances Count:"),
                   -contains("significant", ignore.case=FALSE)) %>%
     dplyr::rename_with(~gsub("^(Student's|Welch's) T-test Difference", "Log2FC", .x), matches("(Student's|Welch's) T-test Difference")) %>%
     dplyr::rename_with(~gsub("^(Student's|Welch's) T-test p-value", "p-value", .x), matches("(Student's|Welch's) T-test p-value")) %>%
