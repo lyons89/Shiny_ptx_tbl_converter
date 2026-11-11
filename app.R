@@ -136,9 +136,11 @@ APMS_SpN = function(df, cond_df){
       dplyr::mutate(., "Contaminant" = grepl("contaminants", PG.FastaFiles, ignore.case = T))
       } else . 
     } %>%
-    { if (any(endsWith(names(.), "PG.RunEvidenceCount"))){
-      dplyr::rename_with(., .cols = -c(ends_with("PG.Quantity"), ends_with("PG.RunEvidenceCount")), ~gsub("^.*\\.", "", .x))  
-    } else . } %>%
+    dplyr::rename_with(
+      ~ sub("^PG\\.", "", .x),
+      .cols = starts_with("PG.") &
+        !ends_with("PG.Quantity") &
+        !ends_with("PG.RunEvidenceCount")) %>%
     dplyr::mutate("SummedQuantity" = round(rowSums(2^across(ends_with("PG.Quantity")), na.rm=TRUE),0)) %>%
     dplyr::rename_with(~str_replace_all(.x, "\\s+", ""), .cols = contains("[")) %>%
     dplyr::rename_with(.cols = !ends_with("PG.Quantity"), ~sub("^PG\\.", "", .x)) %>%
