@@ -133,7 +133,7 @@ APMS_SpN = function(df, cond_df){
     } %>%
       dplyr::rename(., "UniquePeptides" = `PG.NrOfStrippedSequencesIdentified (Experiment-wide)`) %>%
     { if ("PG.FastaFiles" %in% names(.)){
-      dplyr::mutate(., "Contaminant" = grepl("contaminants", PG.FastaFiles, ignore.case = T))
+      dplyr::mutate("Contaminant" = grepl("^(?!.*;).*Contaminants*", FastaFiles, ignore.case = TRUE, perl = TRUE))
       } else . 
     } %>%
     dplyr::rename_with(
